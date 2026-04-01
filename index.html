@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>www.nizzedart.de</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@8..144,400..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <h1 class="brand-title"><span>W</span><span class="brand-flip">M</span><span class="brand-flip">M</span><span class="brand-sep">'</span>NIZZEDART<span class="brand-sep">'</span>DE</h1>
+    </header>
+
+    <section class="board-grid" aria-label="Arbejdsområde med to bogstavplader">
+      <article id="leftPanelCard" class="panel-card">
+        <div class="panel-title-row">
+          <h2>Tidligere besked</h2>
+          <div class="edit-controls">
+            <button id="editSourceButton" class="action-btn action-quiet" type="button">Rediger besked</button>
+            <button id="cancelEditButton" class="action-btn action-secondary" type="button" hidden>Fortryd</button>
+            <button id="acceptEditButton" class="action-btn action-primary" type="button" hidden>Accepter</button>
+          </div>
+        </div>
+        <div id="leftBoard" class="letter-board" aria-label="Venstre bogstavplade" tabindex="0"></div>
+      </article>
+
+      <article id="rightPanelCard" class="panel-card">
+        <div class="panel-title-row">
+          <h2>Ny besked</h2>
+          <div class="controls">
+            <button id="restartButton" class="action-btn action-quiet" type="button">Genstart</button>
+            <button id="clearButton" class="action-btn action-secondary" type="button">Ryd</button>
+            <button id="saveButton" class="action-btn action-primary" type="button">Gem</button>
+          </div>
+        </div>
+        <div id="rightBoard" class="letter-board" aria-label="Højre bogstavplade" tabindex="0"></div>
+      </article>
+    </section>
+
+    <section class="legend-card" aria-label="Tastatur og kontrol">
+      <p>
+        <strong>Information:</strong> Tryk på bogstaverne på venstre side for at placere dem på højre side. Du kan også trykke på tastatur knapperne, hvis du har et keyboard. Mellemrum laver mellemrum. Enter skifter til ny linje. Backspace fjerner sidste bogstav i læseretning. Dobbeltklik på et bogstav, for at vende det om. Hold ctrl nede, mens du taster på tastaturet, for at placere bogstavet på hovedet. Bogstaver kan også trækkes rundt for at omplacere dem.
+      </p>
+    </section>
+
+    <section class="history-card" aria-label="Tidligere beskeder">
+      <div class="history-heading">
+        <h2>Tidligere beskeder</h2>
+      </div>
+      <div id="historyList" class="history-list"></div>
+    </section>
+
+    <footer class="app-footer">© de ansvarlige</footer>
+  </main>
+
+  <input id="mobileKeyCapture" class="mobile-key-capture" type="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" aria-hidden="true">
+
+  <script src="app.js"></script>
+</body>
+</html>

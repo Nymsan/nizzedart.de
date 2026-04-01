@@ -1,0 +1,468 @@
+:root {
+  --bg: #d8bd8f;
+  --bg-alt: #cda975;
+  --text: #191919;
+  --muted: #5f5749;
+  --panel: #f8f4ee;
+  --panel-border: #ccbda7;
+  --board-face: #171717;
+  --board-groove-2: #2b2b2b;
+  --board-groove-3: #111111;
+  --btn: #2f2f2f;
+  --btn-text: #f4f4f4;
+  --btn-light: #ddd4c7;
+  --btn-light-text: #242424;
+  --used: rgba(255, 255, 255, 0.28);
+  --groove-step: 20px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0) 25%),
+    linear-gradient(120deg, var(--bg), var(--bg-alt));
+  color: var(--text);
+  font-family: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
+}
+
+.app-shell {
+  width: min(1220px, 96vw);
+  margin: 1.1rem auto 1.6rem;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: clamp(1.45rem, 2.2vw, 2rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.brand-title {
+  text-transform: uppercase;
+  display: inline-flex;
+  gap: 0.02em;
+  align-items: baseline;
+}
+
+.brand-flip {
+  display: inline-block;
+  transform: rotate(180deg);
+  transform-origin: center;
+}
+
+.brand-sep {
+  display: inline-block;
+  transform: rotate(180deg);
+  transform-origin: center;
+  margin: 0 0.08em;
+}
+
+.board-grid {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+}
+
+.panel-card,
+.history-card {
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 0.72rem;
+}
+
+.panel-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+}
+
+.edit-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.panel-title-row h2,
+.history-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.controls {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.action-btn {
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 0.4rem 0.72rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.action-primary {
+  background: var(--btn);
+  color: var(--btn-text);
+}
+
+.action-secondary,
+.action-quiet {
+  background: var(--btn-light);
+  color: var(--btn-light-text);
+}
+
+.letter-board {
+  position: relative;
+  height: clamp(420px, 58vh, 660px);
+  border: 1px solid #2d2d2d;
+  border-radius: 11px;
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      var(--board-face) 0 calc(var(--groove-step) - 5px),
+      var(--board-groove-2) calc(var(--groove-step) - 5px) calc(var(--groove-step) - 3px),
+      var(--board-groove-3) calc(var(--groove-step) - 3px) var(--groove-step)
+    );
+}
+
+.board-letter {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.letter-glyph {
+  display: inline-block;
+  color: #f8f8f8;
+  font-family: "Google Sans Flex", "Roboto Mono", "Consolas", monospace;
+  font-size: calc(var(--groove-step) * 2.32);
+  font-weight: 640;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  transform-origin: center center;
+  text-shadow:
+    -0.45px -0.45px 0 rgba(255, 255, 255, 0.72),
+    0.45px 0.45px 0 rgba(208, 208, 208, 0.34),
+    0 1.8px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+.board-letter.token-arrow .letter-glyph {
+  font-size: calc(var(--groove-step) * 2.0);
+  line-height: 1;
+}
+
+.board-letter.is-used .letter-glyph {
+  color: var(--used);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.65);
+}
+
+.board-letter.is-right,
+.board-letter.is-left-available {
+  cursor: grab;
+  touch-action: none;
+}
+
+.board-letter.is-right:active,
+.board-letter.is-left-available:active {
+  cursor: grabbing;
+}
+
+.drag-proxy {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.hint {
+  margin: 0.55rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.legend-card {
+  margin-top: 0.8rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 0.62rem 0.72rem;
+}
+
+.legend-card p {
+  margin: 0;
+  color: #4b4438;
+  font-size: 0.82rem;
+}
+
+.cursor-marker {
+  position: absolute;
+  width: 2px;
+  height: calc(var(--groove-step) * 2.55);
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 10px rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+}
+
+.history-card {
+  margin-top: 0.85rem;
+}
+
+.history-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.7rem;
+}
+
+.history-list {
+  --preview-ar: 0.7576;
+  margin-top: 0.6rem;
+  display: grid;
+  gap: 0.52rem;
+  max-height: 62vh;
+  overflow-y: auto;
+  justify-items: center;
+}
+
+.history-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.history-item {
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: #f9f6f1;
+  padding: 0.5rem;
+  width: min(520px, 96%);
+  justify-self: center;
+}
+
+.history-item.active-source {
+  border-color: #8b8d90;
+  background: #ececef;
+  box-shadow: inset 0 0 0 1px rgba(130, 134, 141, 0.34);
+}
+
+.history-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.4rem;
+  color: #575757;
+  font-size: 0.77rem;
+}
+
+.history-meta-main {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.history-title {
+  font-weight: 700;
+  color: #2f3236;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 56vw;
+}
+
+.history-origin,
+.history-time {
+  color: #646a73;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 56vw;
+}
+
+.history-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.history-load-btn {
+  border: 1px solid #b7b7b7;
+  background: #f3f3f3;
+  color: #333333;
+  border-radius: 7px;
+  padding: 0.14rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.history-delete-btn {
+  border: 1px solid #c96d6d;
+  background: #f6dede;
+  color: #7b2020;
+  border-radius: 7px;
+  padding: 0.14rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.history-delete-btn:hover {
+  background: #f3cccc;
+}
+
+.history-delete-btn.is-confirming {
+  background: #e24a4a;
+  border-color: #b63030;
+  color: #fff5f5;
+}
+
+.history-undo-btn {
+  border: 1px solid #7aa186;
+  background: #e1f0e5;
+  color: #255631;
+  border-radius: 7px;
+  padding: 0.14rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.history-load-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.history-preview {
+  position: relative;
+  aspect-ratio: var(--preview-ar);
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-inline: auto;
+  width: min(340px, 90%);
+  padding-inline: 0.15rem;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      #1a1a1a 0 12px,
+      #2b2b2b 12px 14px,
+      #0f0f0f 14px 16px
+    );
+}
+
+.history-item .history-preview {
+  display: flex;
+  justify-content: center;
+}
+
+.history-letter {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f3f3f3;
+  font-family: "Google Sans Flex", "Roboto Mono", "Consolas", monospace;
+  font-size: 0.9rem;
+  font-weight: 640;
+  line-height: 1;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
+  transform-origin: center center;
+}
+
+.panel-card.is-editing {
+  border-color: #9f8b6a;
+  box-shadow: inset 0 0 0 1px rgba(123, 92, 39, 0.18);
+}
+
+.app-footer {
+  margin-top: 0.8rem;
+  text-align: right;
+  color: #666666;
+  font-size: 0.86rem;
+}
+
+.mobile-key-capture {
+  position: fixed;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (max-width: 960px) {
+  .board-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-title-row {
+    flex-wrap: wrap;
+  }
+
+  .letter-board {
+    height: min(62vh, 500px);
+  }
+
+  .legend-card p {
+    font-size: 0.78rem;
+  }
+
+  .action-btn {
+    padding: 0.44rem 0.64rem;
+    font-size: 0.84rem;
+  }
+
+  .history-preview {
+    width: min(320px, 92%);
+  }
+
+}
+
+@media (max-width: 560px) {
+  .app-shell {
+    width: 96vw;
+    margin-top: 0.7rem;
+  }
+
+  .board-grid {
+    gap: 0.7rem;
+  }
+
+  .panel-card,
+  .history-card,
+  .legend-card {
+    padding: 0.55rem;
+  }
+
+  .letter-board {
+    height: min(56vh, 440px);
+  }
+
+  .history-list {
+    max-height: 50vh;
+  }
+
+  .history-preview {
+    width: min(280px, 94%);
+  }
+}
