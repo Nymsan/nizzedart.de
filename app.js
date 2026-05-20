@@ -10,6 +10,10 @@
   const ACCEPT_EDIT_ID = "acceptEditButton";
   const LEFT_PANEL_ID = "leftPanelCard";
   const MOBILE_CAPTURE_ID = "mobileKeyCapture";
+  const WRITER_DIALOG_ID = "writerNameDialog";
+  const WRITER_INPUT_ID = "writerNameInput";
+  const WRITER_CANCEL_ID = "writerCancelButton";
+  const WRITER_SAVE_ID = "writerSaveButton";
 
   const STORAGE_KEY = "letterboard.v6";
   const LEGACY_STORAGE_KEYS = ["letterboard.v5", "letterboard.v4", "letterboard.v3", "letterboard.v2", "letterboard.v1"];
@@ -108,6 +112,7 @@
     rightCursorStack: [],
     leftCursorStack: [],
     preEditSnapshot: null,
+    lastWriterName: "",
     deletePromptId: null,
     undoDelete: null,
     deletePromptTimerId: null
@@ -124,7 +129,11 @@
     editSourceButton: document.getElementById(EDIT_SOURCE_ID),
     cancelEditButton: document.getElementById(CANCEL_EDIT_ID),
     acceptEditButton: document.getElementById(ACCEPT_EDIT_ID),
-    mobileCapture: document.getElementById(MOBILE_CAPTURE_ID)
+    mobileCapture: document.getElementById(MOBILE_CAPTURE_ID),
+    writerDialog: document.getElementById(WRITER_DIALOG_ID),
+    writerNameInput: document.getElementById(WRITER_INPUT_ID),
+    writerCancelButton: document.getElementById(WRITER_CANCEL_ID),
+    writerSaveButton: document.getElementById(WRITER_SAVE_ID)
   };
 
   const arrowOffsets = {
@@ -147,6 +156,7 @@
       state.history = migrateHistory(stored.history || []);
       state.activeMode = stored.activeMode === ACTIVE_MODE_HISTORY ? ACTIVE_MODE_HISTORY : ACTIVE_MODE_ORIGINAL;
       state.activeSourceId = typeof stored.activeSourceId === "string" ? stored.activeSourceId : ORIGINAL_ID;
+      state.lastWriterName = typeof stored.lastWriterName === "string" ? stored.lastWriterName : "";
     }
 
     ensureOriginalPinned();
@@ -1328,14 +1338,22 @@
     renderAll();
   }
 
-  function onSaveFromRightBoard() {
+  async function onSaveFromRightBoard() {
     const snapshot = createSnapshotWithRemainders();
     if (!snapshot.tiles.length) {
       return;
     }
 
+    const writerName = await requestWriterName();
+    if (!writerName) {
+      return;
+    }
+
+    state.lastWriterName = writerName;
+
     createAndActivateHistoryEntry(snapshot, {
-      branchRoot: false
+      branchRoot: false,
+      writerName
     });
     renderAll();
   }
@@ -1343,12 +1361,14 @@
   function createAndActivateHistoryEntry(snapshot, options) {
     const opts = options || {};
     const parentId = opts.branchRoot ? null : (state.activeSourceId || ORIGINAL_ID);
+    const writerName = normalizeWriterName(opts.writerName) || "Ukendt";
 
     const entry = {
       id: `msg_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`,
       createdAt: new Date().toISOString(),
       title: generateSnapshotTitle(snapshot),
       parentId,
+      writerName,
       snapshot
     };
 
@@ -1736,6 +1756,7 @@
       if (!item.title) {
         item.title = generateSnapshotTitle(item.snapshot);
       }
+      item.writerName = normalizeWriterName(item.writerName);
       if (item.parentId === undefined) {
         item.parentId = ORIGINAL_ID;
       }
@@ -1838,6 +1859,13 @@
     return `Fra: ${parent.title || formatDate(parent.createdAt)}`;
   }
 
+  function entryWriterLabel(entry) {
+    if (!entry || entry.id === ORIGINAL_ID) {
+      return "Ophav: LEBBE SALLE";
+    }
+    return `Af: ${normalizeWriterName(entry.writerName) || "Ukendt"}`;
+  }
+
   function lineageChain(entry) {
     if (!entry || entry.id === ORIGINAL_ID) {
       return ORIGINAL_TITLE;
@@ -1893,7 +1921,8 @@
         const migrated = {
           history: migrateHistory(legacy.history || []),
           activeMode: legacy.activeMode === ACTIVE_MODE_HISTORY ? ACTIVE_MODE_HISTORY : ACTIVE_MODE_ORIGINAL,
-          activeSourceId: typeof legacy.activeSourceId === "string" ? legacy.activeSourceId : ORIGINAL_ID
+          activeSourceId: typeof legacy.activeSourceId === "string" ? legacy.activeSourceId : ORIGINAL_ID,
+          lastWriterName: normalizeWriterName(legacy.lastWriterName)
         };
 
         localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
@@ -1912,7 +1941,8 @@
     const payload = {
       history: state.history.slice(0, 120),
       activeMode: state.activeMode,
-      activeSourceId: state.activeSourceId
+      activeSourceId: state.activeSourceId,
+      lastWriterName: state.lastWriterName
     };
 
     try {
@@ -2140,6 +2170,11 @@
       origin.className = "history-origin";
       origin.textContent = lineageLabel(entry);
       leftMeta.appendChild(origin);
+
+      const writer = document.createElement("div");
+      writer.className = "history-writer";
+      writer.textContent = entryWriterLabel(entry);
+      leftMeta.appendChild(writer);
 
       const time = document.createElement("div");
       time.className = "history-time";
@@ -2712,6 +2747,99 @@
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit"
+    });
+  }
+
+  function normalizeWriterName(name) {
+    if (typeof name !== "string") {
+      return "";
+    }
+    return name.trim().slice(0, 60);
+  }
+
+  function requestWriterName() {
+    if (
+      !els.writerDialog ||
+      !els.writerNameInput ||
+      !els.writerSaveButton ||
+      !els.writerCancelButton ||
+      typeof els.writerDialog.showModal !== "function"
+    ) {
+      const fallback = window.prompt("Hvem skriver beskeden?", state.lastWriterName || "");
+      if (fallback === null) {
+        return Promise.resolve(null);
+      }
+      const normalized = normalizeWriterName(fallback);
+      return Promise.resolve(normalized || null);
+    }
+
+    return new Promise(function (resolve) {
+      const dialog = els.writerDialog;
+      const input = els.writerNameInput;
+      const saveButton = els.writerSaveButton;
+      const cancelButton = els.writerCancelButton;
+
+      let done = false;
+
+      function cleanup() {
+        if (done) {
+          return;
+        }
+        done = true;
+
+        saveButton.removeEventListener("click", onSave);
+        cancelButton.removeEventListener("click", onCancel);
+        input.removeEventListener("keydown", onKeyDown);
+        dialog.removeEventListener("cancel", onCancelEvent);
+      }
+
+      function closeWith(value) {
+        cleanup();
+        if (dialog.open) {
+          dialog.close();
+        }
+        resolve(value);
+      }
+
+      function onSave() {
+        const normalized = normalizeWriterName(input.value);
+        if (!normalized) {
+          input.focus();
+          return;
+        }
+        closeWith(normalized);
+      }
+
+      function onCancel() {
+        closeWith(null);
+      }
+
+      function onCancelEvent(event) {
+        event.preventDefault();
+        closeWith(null);
+      }
+
+      function onKeyDown(event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          onSave();
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onCancel();
+        }
+      }
+
+      saveButton.addEventListener("click", onSave);
+      cancelButton.addEventListener("click", onCancel);
+      input.addEventListener("keydown", onKeyDown);
+      dialog.addEventListener("cancel", onCancelEvent);
+
+      input.value = state.lastWriterName || "";
+      input.select();
+      dialog.showModal();
+      input.focus();
     });
   }
 

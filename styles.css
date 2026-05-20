@@ -288,6 +288,7 @@ body {
 }
 
 .history-origin,
+.history-writer,
 .history-time {
   color: #646a73;
   font-size: 0.72rem;
@@ -295,6 +296,53 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 56vw;
+}
+
+.writer-dialog {
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 0;
+  background: var(--panel);
+  color: var(--text);
+  width: min(92vw, 380px);
+}
+
+.writer-dialog::backdrop {
+  background: rgba(17, 17, 17, 0.52);
+}
+
+.writer-dialog-form {
+  margin: 0;
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.9rem;
+}
+
+.writer-dialog-form h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.writer-dialog-form label {
+  font-size: 0.8rem;
+  color: #4b4438;
+  font-weight: 700;
+}
+
+.writer-dialog-form input {
+  border: 1px solid #b9ad9a;
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.92rem;
+  background: #fffdf9;
+  color: #242424;
+}
+
+.writer-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  margin-top: 0.2rem;
 }
 
 .history-actions {

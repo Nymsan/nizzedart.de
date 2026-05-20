@@ -59,6 +59,18 @@
 
   <input id="mobileKeyCapture" class="mobile-key-capture" type="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" aria-hidden="true">
 
+  <dialog id="writerNameDialog" class="writer-dialog">
+    <form method="dialog" class="writer-dialog-form">
+      <h3>Hvem skriver beskeden?</h3>
+      <label for="writerNameInput">Navn</label>
+      <input id="writerNameInput" type="text" maxlength="60" autocomplete="name" placeholder="Skriv dit navn">
+      <div class="writer-dialog-actions">
+        <button id="writerCancelButton" class="action-btn action-secondary" type="button">Afbryd</button>
+        <button id="writerSaveButton" class="action-btn action-primary" type="button">Gem</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="app.js"></script>
 </body>
 </html>
