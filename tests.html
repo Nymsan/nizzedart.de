@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>nizzedart tests</title>
+  <style>
+    body { margin: 1rem; font: 14px/1.4 ui-monospace, monospace; }
+    #summary { font-weight: 700; font-size: 1.1rem; }
+    .pass { color: #17733a; }
+    .fail { color: #b3261e; white-space: pre-wrap; }
+    iframe { display: block; width: 1100px; height: 900px; margin-top: 1rem; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <!-- Serve the folder (python3 -m http.server) and open /tests.html. The page under test runs in the frame below. -->
+  <p id="summary">Running…</p>
+  <div id="results"></div>
+  <iframe id="app" title="The site under test"></iframe>
+  <script type="module" src="tests/run.js"></script>
+</body>
+</html>

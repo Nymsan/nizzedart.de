@@ -1,76 +1,123 @@
 <!doctype html>
 <html lang="da">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>www.nizzedart.de</title>
+  <meta name="description" content="Byt rundt på bogstaverne på tavlen, og send din besked videre.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@8..144,400..700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/main.js"></script>
 </head>
 <body>
-  <main class="app-shell">
-    <header class="app-header">
-      <h1 class="brand-title"><span>W</span><span class="brand-flip">M</span><span class="brand-flip">M</span><span class="brand-sep">'</span>NIZZEDART<span class="brand-sep">'</span>DE</h1>
-    </header>
+  <header class="site-header">
+    <!-- The address, spelled the way the board would: W is an upside-down M, the dot an upside-down apostrophe. -->
+    <h1 class="brand" aria-label="www.nizzedart.de">
+      <span aria-hidden="true">W<i>M</i><i>M</i><i>'</i>NIZZEDART<i>'</i>DE</span>
+    </h1>
+    <p class="tagline">Byt rundt på bogstaverne, og send tavlen videre.</p>
+  </header>
 
-    <section class="board-grid" aria-label="Arbejdsområde med to bogstavplader">
-      <article id="leftPanelCard" class="panel-card">
-        <div class="panel-title-row">
-          <h2>Tidligere besked</h2>
-          <div class="edit-controls">
-            <button id="editSourceButton" class="action-btn action-quiet" type="button">Rediger besked</button>
-            <button id="cancelEditButton" class="action-btn action-secondary" type="button" hidden>Fortryd</button>
-            <button id="acceptEditButton" class="action-btn action-primary" type="button" hidden>Accepter</button>
+  <main>
+    <section id="workspace" class="workspace" aria-label="Tavlerne">
+      <article id="sourcePanel" class="panel">
+        <header class="panel-head">
+          <div>
+            <h2>Forrige besked</h2>
+            <p id="sourceByline" class="byline"></p>
           </div>
-        </div>
-        <div id="leftBoard" class="letter-board" aria-label="Venstre bogstavplade" tabindex="0"></div>
+          <div class="panel-actions">
+            <button id="rewriteButton" class="btn" type="button">Ret tavlen</button>
+            <button id="rewriteCancelButton" class="btn" type="button" hidden>Fortryd</button>
+            <button id="rewriteSaveButton" class="btn btn-primary" type="button" hidden>Gem som ny start</button>
+          </div>
+        </header>
+        <div id="sourceBoard"></div>
       </article>
 
-      <article id="rightPanelCard" class="panel-card">
-        <div class="panel-title-row">
-          <h2>Ny besked</h2>
-          <div class="controls">
-            <button id="restartButton" class="action-btn action-quiet" type="button">Genstart</button>
-            <button id="clearButton" class="action-btn action-secondary" type="button">Ryd</button>
-            <button id="saveButton" class="action-btn action-primary" type="button">Gem</button>
+      <article id="composePanel" class="panel">
+        <header class="panel-head">
+          <div>
+            <h2>Ny besked</h2>
+            <p class="byline">Lavet af bogstaverne fra den forrige</p>
           </div>
-        </div>
-        <div id="rightBoard" class="letter-board" aria-label="Højre bogstavplade" tabindex="0"></div>
+          <div class="panel-actions">
+            <button id="clearButton" class="btn" type="button">Ryd</button>
+            <button id="saveButton" class="btn btn-primary" type="button">Gem og del</button>
+          </div>
+        </header>
+        <div id="composeBoard" data-hint="Tryk på bogstaverne, eller skriv løs"></div>
+        <div id="tray" class="tray" role="group" aria-label="Bogstaver på tavlen"></div>
       </article>
     </section>
 
-    <section class="legend-card" aria-label="Tastatur og kontrol">
-      <p>
-        <strong>Information:</strong> Tryk på bogstaverne på venstre side for at placere dem på højre side. Du kan også trykke på tastatur knapperne, hvis du har et keyboard. Mellemrum laver mellemrum. Enter skifter til ny linje. Backspace fjerner sidste bogstav i læseretning. Dobbeltklik på et bogstav, for at vende det om. Hold ctrl nede, mens du taster på tastaturet, for at placere bogstavet på hovedet. Bogstaver kan også trækkes rundt for at omplacere dem.
-      </p>
+    <details class="help">
+      <summary>Sådan gør du</summary>
+      <ul>
+        <li>Tavlen har kun de bogstaver, der stod i den forrige besked. Tryk på et bogstav for at flytte det over i din egen besked, eller skriv på tastaturet.</li>
+        <li>Mellemrum laver mellemrum, Enter skifter linje, og Backspace tager det sidste bogstav tilbage. Piletasterne flytter markøren – det gør et tryk på tavlen også.</li>
+        <li>Bogstaver kan trækkes rundt. Træk et bogstav ud af tavlen for at lægge det tilbage.</li>
+        <li>Dobbeltklik på et bogstav for at vende det på hovedet, eller hold Shift nede, mens du skriver. Et M på hovedet er et W, og mangler du et W, bliver der selv vendt et M.</li>
+        <li>Når du gemmer, havner de bogstaver, du ikke brugte, i en bunke nederst – og din besked bliver den næste, der kan bygges videre på.</li>
+        <li>»Ret tavlen« lader dig skrive en helt ny tavle med de bogstaver, du har lyst til.</li>
+      </ul>
+    </details>
+
+    <section class="list-section" aria-labelledby="galleryHeading">
+      <h2 id="galleryHeading">Galleri</h2>
+      <p id="galleryEmpty" class="list-note">Ingen har sendt en tavle til galleriet endnu. Gem din egen, og bliv den første.</p>
+      <div id="galleryList" class="cards"></div>
+      <button id="galleryMoreButton" class="btn" type="button" hidden>Vis flere</button>
     </section>
 
-    <section class="history-card" aria-label="Tidligere beskeder">
-      <div class="history-heading">
-        <h2>Tidligere beskeder</h2>
-      </div>
-      <div id="historyList" class="history-list"></div>
+    <section id="savedSection" class="list-section" aria-labelledby="savedHeading" hidden>
+      <h2 id="savedHeading">Dine tavler</h2>
+      <p class="list-note">Tavler, du har gemt eller fået tilsendt. De ligger kun i denne browser.</p>
+      <div id="savedList" class="cards"></div>
     </section>
-
-    <footer class="app-footer">© de ansvarlige</footer>
   </main>
 
-  <input id="mobileKeyCapture" class="mobile-key-capture" type="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" aria-hidden="true">
+  <footer class="site-footer">© de ansvarlige</footer>
 
-  <dialog id="writerNameDialog" class="writer-dialog">
-    <form method="dialog" class="writer-dialog-form">
-      <h3>Hvem skriver beskeden?</h3>
-      <label for="writerNameInput">Navn</label>
-      <input id="writerNameInput" type="text" maxlength="60" autocomplete="name" placeholder="Skriv dit navn">
-      <div class="writer-dialog-actions">
-        <button id="writerCancelButton" class="action-btn action-secondary" type="button">Afbryd</button>
-        <button id="writerSaveButton" class="action-btn action-primary" type="button">Gem</button>
+  <dialog id="authorDialog" class="dialog" aria-labelledby="authorHeading">
+    <form method="dialog">
+      <h2 id="authorHeading">Hvem skriver beskeden?</h2>
+      <label for="authorInput">Navn</label>
+      <input id="authorInput" type="text" maxlength="40" autocomplete="nickname" placeholder="Skriv dit navn" required>
+      <div class="dialog-actions">
+        <button id="authorCancelButton" class="btn" type="button">Annullér</button>
+        <button class="btn btn-primary" value="save">Gem</button>
       </div>
     </form>
   </dialog>
 
-  <script src="app.js"></script>
+  <dialog id="shareDialog" class="dialog dialog-share" aria-labelledby="shareHeading">
+    <form method="dialog">
+      <h2 id="shareHeading">Del tavlen</h2>
+      <div id="sharePreview"></div>
+      <p id="shareTitle" class="share-title"></p>
+
+      <label for="shareLink">Link til tavlen</label>
+      <div class="share-row">
+        <input id="shareLink" type="text" readonly>
+        <button id="copyButton" class="btn btn-primary" type="button">Kopiér link</button>
+      </div>
+      <p class="dialog-note">Den, der åbner linket, får tavlen og kan bygge videre på den.</p>
+
+      <div id="submitSection" class="share-submit">
+        <a id="submitLink" class="btn" target="_blank" rel="noopener">Send til galleriet</a>
+        <p class="dialog-note">Åbner GitHub med tavlen udfyldt. Det kræver en GitHub-konto.</p>
+      </div>
+
+      <div class="dialog-actions">
+        <button id="nativeShareButton" class="btn" type="button" hidden>Del …</button>
+        <button class="btn">Luk</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
