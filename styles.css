@@ -289,23 +289,17 @@ h2 {
 /* The table in front of the board, with the letters nobody used. */
 .board-table {
   --u: calc((100cqw - 2 * var(--frame-pad)) / (var(--frame-w, 520) + 40));
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: calc(4 * var(--u)) calc(12 * var(--u));
+  position: relative;
+  height: calc(var(--table-h, 88) * var(--u));
   margin-top: 10px;
   border-radius: 4px;
-  padding: calc(10 * var(--u)) calc(20 * var(--u));
   background: var(--table);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
+/* Placed by js/board-view.js: --x and --y are the letter's middle-left, in board units. */
 .board-table .tile {
-  position: relative;
-  left: auto;
-  top: auto;
-  translate: 0 calc(var(--shift, 0) * var(--u));
+  top: calc((var(--y) - 23.5) * var(--u));
   filter: drop-shadow(0 calc(2 * var(--u)) calc(1.5 * var(--u)) rgba(0, 0, 0, 0.45));
 }
 
@@ -493,7 +487,7 @@ h2 {
 }
 
 .help-pictures .is-wide:only-child {
-  max-width: 11rem;
+  max-width: 14rem;
 }
 
 .help-pictures .is-letter {

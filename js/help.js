@@ -32,15 +32,17 @@ const EXAMPLES = {
   // What was not used is put aside, on the table in front of the board.
   aside() {
     const message = layoutText([{ row: 2, text: "TIGER" }]);
-    const aside = [..."SNEJIL"].map((ch, i) => ({ ch, x: 40 + i * 77, row: ROW_MAX, flip: i % 3 === 1, loose: true }));
-    return [strip([...message, ...aside], "TIGER, med resten af bogstaverne lagt til side")];
+    const aside = [..."SNEJIL"].map((ch, i) => ({ ch, x: 40 + i * 77, row: ROW_MAX, flip: false, loose: true }));
+    const node = picture([...message, ...aside], 280, STRIP, "TIGER, med resten af bogstaverne lagt til side");
+    node.classList.add("is-wide");
+    return [node];
   },
 };
 
 /** One line of letters, as wide as it needs to be. */
-function strip(tiles, label = null) {
-  const width = Math.max(...tiles.filter((tile) => !tile.loose).map(tileRight)) + MARGIN_X;
-  const node = picture(tiles, width, STRIP, label);
+function strip(tiles) {
+  const width = Math.max(...tiles.map(tileRight)) + MARGIN_X;
+  const node = picture(tiles, width, STRIP);
   node.classList.add("is-wide");
   node.style.flexGrow = width; // so every strip in a row is drawn at the same scale
   return node;

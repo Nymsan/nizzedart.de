@@ -275,7 +275,7 @@ test("board: the original reads as it should", () => {
   assert(nothingOverlaps(ORIGINAL.tiles));
 });
 
-test("leftovers: put aside, loose, all of them, some upside down", () => {
+test("leftovers: put aside, loose, all of them, the right way up, in some order", () => {
   const leftovers = layoutText([{ row: 2, text: "ABCDEFGHIJW" }]);
   for (let seed = 1; seed <= 20; seed += 1) {
     const aside = putAside(leftovers, seededRandom(seed));
@@ -283,8 +283,9 @@ test("leftovers: put aside, loose, all of them, some upside down", () => {
     assert(aside.every((t) => t.loose && t.x >= 0 && t.x <= BOARD_W - glyphWidth(t.ch) && t.row === ROW_MAX), "a valid place");
     assert(decodeBoard(encodeBoard({ tiles: aside, createdAt: 0 })).tiles.length === aside.length, "can be saved");
   }
-  const flipped = putAside(leftovers.concat(leftovers, leftovers), seededRandom(3)).filter((t) => t.flip).length;
-  assert(flipped > 0 && flipped < 33, `some turned, got ${flipped}`);
+  assert(putAside(leftovers, seededRandom(3)).every((t) => !t.flip), "none upside down");
+  const orders = new Set([1, 2, 3, 4, 5].map((seed) => putAside(leftovers, seededRandom(seed)).map((t) => t.ch).join("")));
+  assert(orders.size > 1, "shuffled");
 });
 
 // --- Editing -------------------------------------------------------------------------
@@ -723,6 +724,7 @@ test("page: a saved board has its leftovers on the table, and they can be used",
   equal([$$("#sourceBoard .board-field .tile").length, $$("#sourceBoard .board-table .tile").length], [3, 48]);
   assert(!$("#sourceBoard .board-table").hidden);
   assert($("#composeBoard .board-table").hidden, "nothing on the table of the new board");
+  assert($$("#sourceBoard .board-table .tile").every((node) => !turned(node)), "the right way up on the table");
   tap($$("#sourceBoard .board-table .tile")[0]);
   equal(composed().length, 1);
 });

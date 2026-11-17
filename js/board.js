@@ -142,12 +142,12 @@ const randomInt = (random, min, max) => min + Math.floor(random() * (max - min +
 
 /**
  * Put the letters that were not used aside: they lie loose on the table in
- * front of the board, in no particular order and some of them upside down,
- * for the next person to use. Where a loose letter is on the board does not
- * matter; its `x` only decides how crooked it lies (see board-view.js).
+ * front of the board, the right way up and in no particular order, for the
+ * next person to use. Where a loose letter would be on the board does not
+ * matter: the table has its own layout (see board-view.js).
  */
 export function putAside(leftovers, random = Math.random) {
-  const loose = leftovers.map(({ ch }) => ({ ch, x: randomInt(random, 0, maxX(ch)), row: ROW_MAX, flip: random() < 0.5, loose: true }));
+  const loose = leftovers.map(({ ch }) => ({ ch, x: 0, row: ROW_MAX, flip: false, loose: true }));
   for (let i = loose.length - 1; i > 0; i -= 1) {
     const j = randomInt(random, 0, i);
     [loose[i], loose[j]] = [loose[j], loose[i]];

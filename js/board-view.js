@@ -12,6 +12,9 @@ import { BOARD_H, BOARD_W, glyphText, glyphWidth } from "./glyphs.js";
 /** The strip of felt on either side of a board that letters are not put on (see .board-field). */
 const EDGE = 20;
 
+/** The table, in board units: margins, space between letters and rows, and how high a row arches. */
+const TABLE = { side: 28, gap: 12, top: 44, line: 62, rise: 16 };
+
 const TAP_SLOP = 5; // pixels a press may wander and still count as a tap
 export const DOUBLE_TAP_MS = 350;
 
@@ -53,6 +56,7 @@ export class BoardView {
   /** Tiles are matched to their elements by `id`, so a letter keeps its element while it moves. */
   render(tiles, { cursor = null, label = null } = {}) {
     const seen = new Set();
+    const onTable = [];
     tiles.forEach((tile, index) => {
       const id = String(tile.id ?? index);
       seen.add(id);
@@ -66,8 +70,10 @@ export class BoardView {
       const place = tile.loose ? this.#table : this.#field;
       if (node.parentNode !== place) place.append(node);
       paintTile(node, tile);
+      if (tile.loose) onTable.push({ node, tile });
     });
-    this.#table.hidden = !tiles.some((tile) => tile.loose);
+    this.#table.hidden = onTable.length === 0;
+    if (onTable.length > 0) this.#layOutTable(onTable);
     for (const [id, node] of this.#nodes) {
       if (seen.has(id)) continue;
       node.remove();
@@ -90,6 +96,41 @@ export class BoardView {
       this.root.setAttribute("role", "img");
       this.root.setAttribute("aria-label", label);
     }
+  }
+
+  /**
+   * Loose letters lie on the table in rows that each curve in a gentle arch,
+   * every letter the right way up and turned to follow the curve.
+   */
+  #layOutTable(items) {
+    const room = this.#width + 2 * EDGE - 2 * TABLE.side;
+    const rows = [[]];
+    let used = 0;
+    for (const item of items) {
+      const width = glyphWidth(item.tile.ch);
+      if (used > 0 && used + width > room) {
+        rows.push([]);
+        used = 0;
+      }
+      rows.at(-1).push({ ...item, width });
+      used += width + TABLE.gap;
+    }
+
+    rows.forEach((row, index) => {
+      const length = row.reduce((sum, { width }) => sum + width, 0) + TABLE.gap * (row.length - 1);
+      const rise = TABLE.rise * Math.min(1, length / room); // short rows curve less
+      let x = (this.#width + 2 * EDGE - length) / 2;
+      for (const { node, width } of row) {
+        const t = length > 0 ? (x + width / 2 - (this.#width + 2 * EDGE - length) / 2) / length : 0.5;
+        const y = TABLE.top + index * TABLE.line - 4 * rise * t * (1 - t);
+        const slope = (-4 * rise * (1 - 2 * t)) / length;
+        node.style.setProperty("--x", x);
+        node.style.setProperty("--y", y);
+        node.style.setProperty("--turn", `${(Math.atan(slope) * 180) / Math.PI}deg`);
+        x += width + TABLE.gap;
+      }
+    });
+    this.#table.style.setProperty("--table-h", TABLE.top * 2 + (rows.length - 1) * TABLE.line);
   }
 
   /** How many board units one screen pixel is. */
@@ -130,18 +171,10 @@ function paintTile(node, tile) {
   node.style.setProperty("--x", tile.x);
   node.style.setProperty("--row", tile.row);
   node.style.setProperty("--w", glyphWidth(tile.ch));
-  node.style.setProperty("--turn", `${looseTilt(tile) + (tile.flip ? 180 : 0)}deg`);
-  node.style.setProperty("--shift", looseShift(tile));
+  // On the table, where a letter lies and how it is turned is up to #layOutTable.
+  if (!tile.loose) node.style.setProperty("--turn", tile.flip ? "180deg" : "0deg");
   node.classList.toggle("is-used", Boolean(tile.used));
 }
-
-/** Loose letters lie a little crooked on the table. How crooked follows from their `x`. */
-function looseTilt(tile) {
-  return tile.loose ? ((tile.x * 7 + tile.row * 13) % 17) - 8 : 0;
-}
-
-/** And a little out of line, in board units. */
-const looseShift = (tile) => (tile.loose ? ((tile.x * 5) % 11) - 5 : 0);
 
 function watchGestures(field, handlers) {
   let press = null;
