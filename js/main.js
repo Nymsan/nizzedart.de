@@ -4,6 +4,7 @@ import { renderCards } from "./cards.js";
 import { decodeBoard, encodeBoard } from "./codec.js";
 import { GALLERY_URL } from "./config.js";
 import { askAuthor, showShareDialog } from "./dialogs.js";
+import { renderHelp } from "./help.js";
 import { Library, ORIGINAL } from "./library.js";
 import { watchBoardFont } from "./metrics.js";
 import { takeLinkedCode } from "./share.js";
@@ -26,6 +27,7 @@ let saveTimer = 0;
 let isSaving = false;
 
 watchBoardFont();
+renderHelp($("#help"));
 bindControls();
 useBoard(library.source, library.draft);
 openLinkedBoard();
@@ -58,7 +60,7 @@ function switchTo(board) {
   useBoard(board);
   $("#workspace").scrollIntoView({ behavior: "smooth", block: "start" });
   if (previous.draft.length > 0) {
-    toast("Din kladde blev lagt væk.", { label: "Fortryd", run: () => useBoard(previous.board, previous.draft) });
+    toast("Din kladde er lagt til side.", { label: "Fortryd", run: () => useBoard(previous.board, previous.draft) });
   }
 }
 
@@ -103,7 +105,7 @@ async function saveBoard() {
   const board = library.keep(decodeBoard(encodeBoard({ tiles, author, parentId })), "mine");
   library.author = author;
   useBoard(board);
-  share(board, "Gemt! Send tavlen videre");
+  share(board, "Gemt! Send den videre");
 }
 
 function share(board, heading = "Del tavlen") {
@@ -124,12 +126,12 @@ function openLinkedBoard() {
   try {
     board = decodeBoard(code);
   } catch {
-    toast("Linket kunne ikke læses.");
+    toast("Linket virker desværre ikke.");
     return false;
   }
   board = library.keep(board, "link");
   switchTo(board);
-  toast(board.author ? `Du har fået en tavle af ${board.author}. Byg videre på den!` : "Du har fået en tavle. Byg videre på den!");
+  toast(board.author ? `${board.author} har sendt dig en tavle. Byg videre på den!` : "Du har fået en tavle. Byg videre på den!");
   return true;
 }
 
@@ -176,6 +178,7 @@ function forget(board) {
 function bindControls() {
   $("#saveButton").addEventListener("click", saveBoard);
   $("#clearButton").addEventListener("click", () => workspace.clear());
+  $("#shuffleButton").addEventListener("click", () => workspace.shuffle());
   $("#rewriteButton").addEventListener("click", () => workspace.startRewrite());
   $("#rewriteCancelButton").addEventListener("click", () => workspace.cancelRewrite());
   $("#rewriteSaveButton").addEventListener("click", saveBoard);

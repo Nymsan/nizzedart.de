@@ -16,12 +16,12 @@ ALPHABET = add_board.ALPHABET
 # The same board and code as in tests/run.js, so the two implementations of the
 # format are held to each other.
 GOLDEN = {
-    "tiles": [("A", 16, 2, False, False), ("M", 52, 2, True, False), ("'", 100, 30, False, True), ("<", 486, 5, True, True)],
+    "tiles": [("A", 16, 2, False, False), ("M", 52, 2, True, False), ("'", 100, 30, False, True), ("<", 480, 5, True, True)],
     "author": "Æg & Ål",
     "minutes": 29333333,
     "parent": "0123456789ab",
 }
-GOLDEN_CODE = "AQG_l1UBI0VniasJw4ZnICYgw4VsBAAEBGQaCpRk9VvMUA"
+GOLDEN_CODE = "AQG_l1UBI0VniasJw4ZnICYgw4VsBAAEBGQaCpRk9VvAUA"
 
 
 def encode(tiles, author="", minutes=0, parent="000000000000", version=1):

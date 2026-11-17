@@ -16,33 +16,38 @@ export function renderCards(container, boards, options) {
 function card(board, { library, activeId, onUse, onShare, onForget }) {
   const title = library.titleOf(board);
 
-  const preview = h("div");
-  new BoardView(preview).render(board.tiles, { label: title });
+  // The picture of the board is the big button: it puts the board in play.
+  const picture = h("div");
+  new BoardView(picture).render(board.tiles, { label: title });
+  const preview = h("button", { type: "button", className: "card-preview", title: "Byg videre på den", onclick: () => onUse(board) }, picture);
 
   const facts = [board.author && `Af ${board.author}`, board.createdAt > 0 && formatDate(board.createdAt)].filter(Boolean);
-  if (board.origin === "link") facts.push("modtaget");
+  if (board.origin === "link") facts.push("fået sendt");
+  const isActive = board.id === activeId;
 
-  const node = h(
-    "article",
-    { className: "card" },
-    preview,
+  const text = h(
+    "div",
+    { className: "card-text" },
     h("h3", { className: "card-title", textContent: title, title }),
     h("p", { className: "card-meta", textContent: facts.join(" · ") }),
     h("p", { className: "card-meta", textContent: lineage(board, library) }),
   );
-  node.classList.toggle("is-active", board.id === activeId);
+  if (isActive) text.prepend(h("span", { className: "card-badge", textContent: "På tavlen nu" }));
 
-  const button = (label, run) => h("button", { type: "button", className: "btn btn-small", textContent: label, onclick: () => run(board) });
-  const actions = h("div", { className: "card-actions" }, button("Byg videre", onUse), button("Del", onShare));
+  const button = (label, run, primary = false) =>
+    h("button", { type: "button", className: `btn btn-small${primary ? " btn-primary" : ""}`, textContent: label, onclick: () => run(board) });
+  const actions = h("div", { className: "card-actions" }, button("Byg videre", onUse, !isActive), button("Del", onShare));
   if (onForget) actions.append(button("Slet", onForget));
-  node.append(actions);
+
+  const node = h("article", { className: "card" }, preview, text, actions);
+  node.classList.toggle("is-active", isActive);
 
   return node;
 }
 
 /** Where a board's letters came from. */
 function lineage(board, library) {
-  if (board.parentId === null) return board.createdAt > 0 ? "Ny start" : "Her begyndte det";
+  if (board.parentId === null) return board.createdAt > 0 ? "Ny start" : "Her begyndte det hele";
   const parent = library.find(board.parentId);
-  return parent ? `Fra: ${library.titleOf(parent)}` : "";
+  return parent ? `Bygget på: ${library.titleOf(parent)}` : "";
 }

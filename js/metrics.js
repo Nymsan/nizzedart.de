@@ -4,13 +4,13 @@
 //   --cap-shift    moves a letter so the middle of its capitals is on the groove
 //   --arrow-shift  the same for the arrow, which is centred on its own ink
 
-const SIZE = 100;
+const SIZE = 48; // any size will do: the offsets are in em
 
 export function measureBoardFont() {
   const root = document.documentElement;
   const context = document.createElement("canvas").getContext("2d");
   if (!context) return;
-  context.font = `640 ${SIZE}px ${getComputedStyle(root).getPropertyValue("--board-font")}`;
+  context.font = `600 ${SIZE}px ${getComputedStyle(root).getPropertyValue("--board-font")}`;
 
   const capital = context.measureText("H");
   const ascent = capital.fontBoundingBoxAscent;

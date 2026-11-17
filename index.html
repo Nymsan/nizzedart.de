@@ -4,10 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>www.nizzedart.de</title>
-  <meta name="description" content="Byt rundt på bogstaverne på tavlen, og send din besked videre.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@8..144,400..700&display=swap" rel="stylesheet">
+  <meta name="description" content="Lav en ny besked af bogstaverne fra den forrige, og send tavlen videre.">
+  <meta name="theme-color" content="#d6cbbb">
+  <link rel="preload" href="fonts/FiraSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="js/main.js"></script>
 </head>
@@ -17,7 +16,7 @@
     <h1 class="brand" aria-label="www.nizzedart.de">
       <span aria-hidden="true">W<i>M</i><i>M</i><i>'</i>NIZZEDART<i>'</i>DE</span>
     </h1>
-    <p class="tagline">Byt rundt på bogstaverne, og send tavlen videre.</p>
+    <p class="tagline">Lav en ny besked af bogstaverne fra den forrige, og send tavlen videre.</p>
   </header>
 
   <main>
@@ -30,8 +29,8 @@
           </div>
           <div class="panel-actions">
             <button id="rewriteButton" class="btn" type="button">Ret tavlen</button>
-            <button id="rewriteCancelButton" class="btn" type="button" hidden>Fortryd</button>
-            <button id="rewriteSaveButton" class="btn btn-primary" type="button" hidden>Gem som ny start</button>
+            <button id="rewriteCancelButton" class="btn" type="button" hidden>Annullér</button>
+            <button id="rewriteSaveButton" class="btn btn-primary" type="button" hidden>Gem som ny tavle</button>
           </div>
         </header>
         <div id="sourceBoard"></div>
@@ -40,41 +39,59 @@
       <article id="composePanel" class="panel">
         <header class="panel-head">
           <div>
-            <h2>Ny besked</h2>
-            <p class="byline">Lavet af bogstaverne fra den forrige</p>
+            <h2>Din besked</h2>
+            <p class="byline">Kun med bogstaverne fra den forrige</p>
           </div>
           <div class="panel-actions">
             <button id="clearButton" class="btn" type="button">Ryd</button>
+            <button id="shuffleButton" class="btn" type="button">Bland</button>
             <button id="saveButton" class="btn btn-primary" type="button">Gem og del</button>
           </div>
         </header>
-        <div id="composeBoard" data-hint="Tryk på bogstaverne, eller skriv løs"></div>
+        <div id="composeBoard"></div>
         <div id="tray" class="tray" role="group" aria-label="Bogstaver på tavlen"></div>
       </article>
     </section>
 
-    <details class="help">
+    <details id="help" class="help">
       <summary>Sådan gør du</summary>
-      <ul>
-        <li>Tavlen har kun de bogstaver, der stod i den forrige besked. Tryk på et bogstav for at flytte det over i din egen besked, eller skriv på tastaturet.</li>
-        <li>Mellemrum laver mellemrum, Enter skifter linje, og Backspace tager det sidste bogstav tilbage. Piletasterne flytter markøren – det gør et tryk på tavlen også.</li>
-        <li>Bogstaver kan trækkes rundt. Træk et bogstav ud af tavlen for at lægge det tilbage.</li>
-        <li>Dobbeltklik på et bogstav for at vende det på hovedet, eller hold Shift nede, mens du skriver. Et M på hovedet er et W, og mangler du et W, bliver der selv vendt et M.</li>
-        <li>Når du gemmer, havner de bogstaver, du ikke brugte, i en bunke nederst – og din besked bliver den næste, der kan bygges videre på.</li>
-        <li>»Ret tavlen« lader dig skrive en helt ny tavle med de bogstaver, du har lyst til.</li>
+      <ol class="help-steps">
+        <li class="help-step">
+          <div class="help-pictures" data-example="pick"></div>
+          <p>Byg din besked af bogstaverne fra den forrige. Tryk på dem, eller skriv på tastaturet.</p>
+        </li>
+        <li class="help-step">
+          <div class="help-pictures" data-example="turn"></div>
+          <p>Dobbeltklik på et bogstav for at vende det. Så bliver M til W, og 6 til 9.</p>
+        </li>
+        <li class="help-step">
+          <div class="help-pictures" data-example="aside"></div>
+          <p>Når du gemmer, bliver de bogstaver, du ikke brugte, liggende ved siden af tavlen. Den næste kan stadig bruge dem.</p>
+        </li>
+      </ol>
+      <ul class="help-keys">
+        <li><kbd>Mellemrum</kbd> laver mellemrum, <kbd>Enter</kbd> skifter linje, og <kbd>Backspace</kbd> tager det sidste bogstav tilbage. Piletasterne flytter markøren, og det gør et tryk på tavlen også.</li>
+        <li>Træk bogstaverne rundt med musen eller fingeren. Vil du af med et bogstav, så tryk på det, eller træk det tilbage til den forrige besked.</li>
+        <li>Hold <kbd>Shift</kbd> nede, mens du skriver, for at sætte bogstavet på hovedet. Mangler du et W, vender tavlen selv et M.</li>
+        <li>»Bland« lægger alle de bogstaver, der er tilbage, på din tavle i tilfældig rækkefølge.</li>
+        <li>»Ret tavlen« lader dig skrive en helt ny tavle med lige de bogstaver, du vil.</li>
       </ul>
     </details>
 
     <section class="list-section" aria-labelledby="galleryHeading">
-      <h2 id="galleryHeading">Galleri</h2>
-      <p id="galleryEmpty" class="list-note">Ingen har sendt en tavle til galleriet endnu. Gem din egen, og bliv den første.</p>
+      <div class="list-head">
+        <h2 id="galleryHeading">Galleri</h2>
+        <p id="galleryEmpty" class="list-note">Her er tavlen, det hele startede med. Gem din egen, og send den ind.</p>
+      </div>
       <div id="galleryList" class="cards"></div>
       <button id="galleryMoreButton" class="btn" type="button" hidden>Vis flere</button>
     </section>
 
     <section id="savedSection" class="list-section" aria-labelledby="savedHeading" hidden>
-      <h2 id="savedHeading">Dine tavler</h2>
-      <p class="list-note">Tavler, du har gemt eller fået tilsendt. De ligger kun i denne browser.</p>
+      <div class="list-head">
+        <h2 id="savedHeading">Dine tavler</h2>
+        <p class="list-note">Dem, du har gemt eller fået sendt. De ligger kun i denne browser.</p>
+      </div>
       <div id="savedList" class="cards"></div>
     </section>
   </main>
@@ -83,9 +100,9 @@
 
   <dialog id="authorDialog" class="dialog" aria-labelledby="authorHeading">
     <form method="dialog">
-      <h2 id="authorHeading">Hvem skriver beskeden?</h2>
+      <h2 id="authorHeading">Hvem har skrevet den?</h2>
       <label for="authorInput">Navn</label>
-      <input id="authorInput" type="text" maxlength="40" autocomplete="nickname" placeholder="Skriv dit navn" required>
+      <input id="authorInput" type="text" maxlength="40" autocomplete="nickname" placeholder="Dit navn" required>
       <div class="dialog-actions">
         <button id="authorCancelButton" class="btn" type="button">Annullér</button>
         <button class="btn btn-primary" value="save">Gem</button>
@@ -108,7 +125,7 @@
 
       <div id="submitSection" class="share-submit">
         <a id="submitLink" class="btn" target="_blank" rel="noopener">Send til galleriet</a>
-        <p class="dialog-note">Åbner GitHub med tavlen udfyldt. Det kræver en GitHub-konto.</p>
+        <p class="dialog-note">Åbner GitHub med tavlen udfyldt. Du skal have en GitHub-konto.</p>
       </div>
 
       <div class="dialog-actions">

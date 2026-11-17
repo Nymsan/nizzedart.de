@@ -1,34 +1,53 @@
 // Draws a board into the page and reports what the pointer does to its letters.
+// Letters on the board hang in its grooves; loose letters lie on the table in
+// front of it, outside the frame.
 //
 // The view knows nothing about the rules of the board: it renders the tiles it
 // is given and turns presses into taps, double taps and drags. All sizes are
 // set in board units through CSS variables, so the same markup works for the
 // big boards and for the small previews.
 
-import { BOARD_W, glyphText, glyphWidth } from "./glyphs.js";
+import { BOARD_H, BOARD_W, glyphText, glyphWidth } from "./glyphs.js";
+
+/** The strip of felt on either side of a board that letters are not put on (see .board-field). */
+const EDGE = 20;
 
 const TAP_SLOP = 5; // pixels a press may wander and still count as a tap
-const DOUBLE_TAP_MS = 350;
+export const DOUBLE_TAP_MS = 350;
 
 export class BoardView {
   #field;
+  #table;
   #nodes = new Map();
   #cursor = null;
+  #width;
 
   /**
    * @param {HTMLElement} root
    * @param {object} [gestures] Callbacks `tap(id)`, `doubleTap(id)`, `boardTap(event)`,
    *   `canDrag(id, event)`, `drag(id, event, dx, dy)`, `drop(id, event)` and `cancel(id)`.
    *   Without them the board is a static picture.
+   * @param {object} [frame] `width` and `height` in board units, to show just the top left of a board.
    */
-  constructor(root, gestures = null) {
+  constructor(root, gestures = null, { width = BOARD_W, height = BOARD_H } = {}) {
     this.root = root;
-    root.classList.add("board");
+    this.#width = width;
+    root.classList.add("board-view");
+    if (width !== BOARD_W || height !== BOARD_H) {
+      root.style.setProperty("--frame-w", width);
+      root.style.setProperty("--face-ratio", `${width + 2 * EDGE} / ${height}`);
+    }
+    const frame = element("div", "board");
     const face = element("div", "board-face");
     this.#field = element("div", "board-field");
+    this.#table = element("div", "board-table");
     face.append(this.#field);
-    root.replaceChildren(face);
-    if (gestures) watchGestures(this.#field, gestures);
+    frame.append(face);
+    root.replaceChildren(frame, this.#table);
+    if (gestures) {
+      watchGestures(this.#field, gestures);
+      watchGestures(this.#table, gestures);
+    }
   }
 
   /** Tiles are matched to their elements by `id`, so a letter keeps its element while it moves. */
@@ -43,10 +62,12 @@ export class BoardView {
         node.dataset.id = id;
         node.append(element("span", "glyph"));
         this.#nodes.set(id, node);
-        this.#field.append(node);
       }
+      const place = tile.loose ? this.#table : this.#field;
+      if (node.parentNode !== place) place.append(node);
       paintTile(node, tile);
     });
+    this.#table.hidden = !tiles.some((tile) => tile.loose);
     for (const [id, node] of this.#nodes) {
       if (seen.has(id)) continue;
       node.remove();
@@ -61,7 +82,7 @@ export class BoardView {
       this.#cursor = null;
     }
     if (cursor) {
-      this.#cursor.style.setProperty("--x", Math.min(cursor.x, BOARD_W - 4));
+      this.#cursor.style.setProperty("--x", Math.min(cursor.x, this.#width - 4));
       this.#cursor.style.setProperty("--row", cursor.row);
     }
 
@@ -73,13 +94,13 @@ export class BoardView {
 
   /** How many board units one screen pixel is. */
   get unitsPerPixel() {
-    return BOARD_W / this.#field.getBoundingClientRect().width;
+    return this.#width / this.#field.getBoundingClientRect().width;
   }
 
   /** A pointer position in board units, and how far outside the board it is (0 when inside). */
   pointAt({ clientX, clientY }) {
     const rect = this.#field.getBoundingClientRect();
-    const scale = BOARD_W / rect.width;
+    const scale = this.#width / rect.width;
     const outside = Math.max(rect.left - clientX, clientX - rect.right, rect.top - clientY, clientY - rect.bottom, 0);
     return { x: (clientX - rect.left) * scale, y: (clientY - rect.top) * scale, outside: outside * scale };
   }
@@ -92,10 +113,6 @@ export class BoardView {
     node.style.translate = lifted ? `${dx}px ${dy}px` : "";
     node.classList.toggle("is-lifted", lifted);
     this.root.classList.toggle("has-lifted", lifted);
-  }
-
-  mark(id, className, on) {
-    this.#nodes.get(String(id))?.classList.toggle(className, on);
   }
 }
 
@@ -114,13 +131,17 @@ function paintTile(node, tile) {
   node.style.setProperty("--row", tile.row);
   node.style.setProperty("--w", glyphWidth(tile.ch));
   node.style.setProperty("--turn", `${looseTilt(tile) + (tile.flip ? 180 : 0)}deg`);
+  node.style.setProperty("--shift", looseShift(tile));
   node.classList.toggle("is-used", Boolean(tile.used));
 }
 
-/** Letters in the pile of leftovers lie a little crooked. The angle follows from where they lie. */
+/** Loose letters lie a little crooked on the table. How crooked follows from their `x`. */
 function looseTilt(tile) {
   return tile.loose ? ((tile.x * 7 + tile.row * 13) % 17) - 8 : 0;
 }
+
+/** And a little out of line, in board units. */
+const looseShift = (tile) => (tile.loose ? ((tile.x * 5) % 11) - 5 : 0);
 
 function watchGestures(field, handlers) {
   let press = null;

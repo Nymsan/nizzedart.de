@@ -3,7 +3,6 @@
 // while a board is being edited). `x` is the left edge, `row` the groove.
 
 import {
-  BOARD_H,
   BOARD_W,
   GROOVE,
   LINE_STEP,
@@ -30,7 +29,8 @@ export function blockerAt(tiles, ch, x, row, ignoreId = null) {
   for (const tile of tiles) {
     if (ignoreId !== null && tile.id === ignoreId) continue;
     if (Math.abs(tile.row - row) >= LINE_STEP) continue;
-    const gap = gapBetween(ch, tile.ch);
+    const isLeft = tile.x + tileRight(tile) < x + right; // comparing the middles of the two
+    const gap = isLeft ? gapBetween(tile.ch, ch) : gapBetween(ch, tile.ch);
     if (x < tileRight(tile) + gap && tile.x < right + gap) return tile;
   }
   return null;
@@ -42,7 +42,7 @@ export function freeXForward(tiles, ch, x, row) {
   while (at <= maxX(ch)) {
     const blocker = blockerAt(tiles, ch, at, row);
     if (!blocker) return at;
-    at = tileRight(blocker) + gapBetween(ch, blocker.ch);
+    at = tileRight(blocker) + gapBetween(blocker.ch, ch);
   }
   return null;
 }
@@ -55,8 +55,7 @@ export function freeXNearest(tiles, ch, x, row, ignoreId = null) {
     while (at >= 0 && at <= maxX(ch)) {
       const blocker = blockerAt(tiles, ch, at, row, ignoreId);
       if (!blocker) return at;
-      const gap = gapBetween(ch, blocker.ch);
-      at = direction > 0 ? tileRight(blocker) + gap : blocker.x - gap - glyphWidth(ch);
+      at = direction > 0 ? tileRight(blocker) + gapBetween(blocker.ch, ch) : blocker.x - gapBetween(ch, blocker.ch) - glyphWidth(ch);
     }
     return null;
   };
@@ -75,9 +74,14 @@ export function nextLine(row) {
   return { x: MARGIN_X, row: next > ROW_MAX ? ROW_MIN : next };
 }
 
-/** Where a typed letter lands: at the cursor, or on the first following line with room. */
+/**
+ * Where a typed letter lands: at the cursor, or on the first following line
+ * with room. Typed right after another letter, it is kerned against that one.
+ */
 export function typingSlot(tiles, ch, cursor) {
   let { x, row } = cursor;
+  const before = tiles.find((tile) => tile.row === row && tileRight(tile) + gapAfter(tile.ch) === x);
+  if (before) x = tileRight(before) + gapBetween(before.ch, ch);
   const lines = Math.ceil((ROW_MAX - ROW_MIN + 1) / LINE_STEP) + 1;
   for (let i = 0; i < lines; i += 1) {
     const free = freeXForward(tiles, ch, x, row);
@@ -92,12 +96,16 @@ export function layoutText(lines) {
   const tiles = [];
   for (const { text, row } of lines) {
     let x = MARGIN_X;
+    let before = null;
     for (const ch of text) {
       if (ch === " ") {
         x += WORD_GAP;
+        before = null;
       } else {
+        if (before) x += gapBetween(before, ch) - gapAfter(before);
         tiles.push({ ch, x, row, flip: false, loose: false });
         x += glyphWidth(ch) + gapAfter(ch);
+        before = ch;
       }
     }
   }
@@ -133,47 +141,16 @@ export function messageText(tiles) {
 const randomInt = (random, min, max) => min + Math.floor(random() * (max - min + 1));
 
 /**
- * Dump the letters that were not used in a pile at the bottom of the board,
- * some of them upside down. The pile starts a couple of lines below the
- * message when there is room, and creeps upwards when there is not.
+ * Put the letters that were not used aside: they lie loose on the table in
+ * front of the board, in no particular order and some of them upside down,
+ * for the next person to use. Where a loose letter is on the board does not
+ * matter; its `x` only decides how crooked it lies (see board-view.js).
  */
-export function scatterLeftovers(message, leftovers, random = Math.random) {
-  const lastRow = message.reduce((row, tile) => Math.max(row, tile.row), ROW_MIN - LINE_STEP);
-  const pileRow = Math.round((BOARD_H * 0.66) / GROOVE);
-  const closest = lastRow + LINE_STEP;
-  // Grow the pile upwards a line at a time, so it is no taller than it has to be.
-  for (let top = Math.max(pileRow, closest + LINE_STEP); top >= closest; top -= LINE_STEP) {
-    const pile = tryScatter(message, leftovers, Math.min(top, ROW_MAX), random);
-    if (pile) return pile;
+export function putAside(leftovers, random = Math.random) {
+  const loose = leftovers.map(({ ch }) => ({ ch, x: randomInt(random, 0, maxX(ch)), row: ROW_MAX, flip: random() < 0.5, loose: true }));
+  for (let i = loose.length - 1; i > 0; i -= 1) {
+    const j = randomInt(random, 0, i);
+    [loose[i], loose[j]] = [loose[j], loose[i]];
   }
-  const anywhere = tryScatter(message, leftovers, ROW_MIN, random);
-  if (anywhere) return anywhere;
-  // The board is so full that the letters cannot be kept apart: let them overlap.
-  return leftovers.map(({ ch }) => looseTile(ch, randomInt(random, 0, maxX(ch)), randomInt(random, pileRow, ROW_MAX), random));
-}
-
-function looseTile(ch, x, row, random) {
-  return { ch, x, row, flip: random() < 0.5, loose: true };
-}
-
-function tryScatter(message, leftovers, topRow, random) {
-  const taken = [...message];
-  const pile = [];
-  for (const { ch } of leftovers) {
-    let spot = null;
-    for (let attempt = 0; attempt < 40 && !spot; attempt += 1) {
-      const x = randomInt(random, 0, maxX(ch));
-      const row = randomInt(random, topRow, ROW_MAX);
-      if (!blockerAt(taken, ch, x, row)) spot = { x, row };
-    }
-    for (let row = ROW_MAX; row >= topRow && !spot; row -= 1) {
-      const x = freeXForward(taken, ch, 0, row);
-      if (x !== null) spot = { x, row };
-    }
-    if (!spot) return null;
-    const tile = looseTile(ch, spot.x, spot.row, random);
-    taken.push(tile);
-    pile.push(tile);
-  }
-  return pile;
+  return loose;
 }

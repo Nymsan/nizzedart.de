@@ -6,11 +6,11 @@
 // `?app=<page>` tests another page than index.html, and `?only=<text>` runs
 // only the tests with that text in their name.
 
-import { blockerAt, freeXForward, freeXNearest, layoutText, messageText, readLines, scatterLeftovers, typingSlot } from "../js/board.js";
+import { blockerAt, freeXForward, freeXNearest, layoutText, messageText, putAside, readLines, typingSlot } from "../js/board.js";
 import { MAX_TILES, cleanAuthor, decodeBoard, encodeBoard } from "../js/codec.js";
 import { STORAGE_KEY } from "../js/config.js";
 import { ENDLESS, Editor, Pool } from "../js/editor.js";
-import { ALPHABET, BOARD_W, LINE_STEP, MARGIN_X, ROW_MAX, ROW_MIN, WORD_GAP, glyphForKey, glyphWidth } from "../js/glyphs.js";
+import { ALPHABET, BOARD_W, LINE_STEP, MARGIN_X, ROW_MAX, ROW_MIN, WORD_GAP, gapAfter, gapBetween, glyphForKey, glyphWidth } from "../js/glyphs.js";
 import { Library, ORIGINAL } from "../js/library.js";
 import { gallerySubmitUrl } from "../js/share.js";
 
@@ -77,6 +77,15 @@ function fakeStorage(initial = {}) {
 const tile = (ch, x, row, flip = false, loose = false) => ({ ch, x, row, flip, loose });
 const withIds = (tiles) => tiles.map((t, i) => ({ ...t, id: `x${i}` }));
 
+/** Where the letters of a word typed from `x` land: each one kerned against the one before it. */
+function spaced(word, x = MARGIN_X) {
+  const letters = [...word];
+  return letters.map((ch, i) => (i === 0 ? x : (x += glyphWidth(letters[i - 1]) + gapBetween(letters[i - 1], ch))));
+}
+
+/** Where the cursor is after a letter at `x`. */
+const after = (ch, x) => x + glyphWidth(ch) + gapAfter(ch);
+
 /** True if no two tiles are closer than the board allows. */
 function nothingOverlaps(tiles) {
   const all = withIds(tiles);
@@ -105,12 +114,12 @@ test("keys: > . and , are other letters turned upside down", () => {
 
 // The same board and code as in tests/test_add_board.py.
 const GOLDEN = {
-  tiles: [tile("A", 16, 2), tile("M", 52, 2, true), tile("'", 100, 30, false, true), tile("<", 486, 5, true, true)],
+  tiles: [tile("A", 16, 2), tile("M", 52, 2, true), tile("'", 100, 30, false, true), tile("<", 480, 5, true, true)],
   author: "Æg & Ål",
   createdAt: 29333333 * 60000,
   parentId: "0123456789ab",
 };
-const GOLDEN_CODE = "AQG_l1UBI0VniasJw4ZnICYgw4VsBAAEBGQaCpRk9VvMUA";
+const GOLDEN_CODE = "AQG_l1UBI0VniasJw4ZnICYgw4VsBAAEBGQaCpRk9VvAUA";
 
 test("codec: encodes the golden board to the same code as the Python script expects", () => {
   equal(encodeBoard(GOLDEN), GOLDEN_CODE);
@@ -182,8 +191,11 @@ test("codec: a letter hanging over the edge is pulled back onto the board", () =
 test("board: letters block each other on the same line only", () => {
   const tiles = withIds([tile("A", 100, 5)]);
   assert(blockerAt(tiles, "B", 100, 5), "same place");
-  assert(blockerAt(tiles, "B", 135, 5), "closer than the gap");
-  assert(!blockerAt(tiles, "B", 136, 5), "exactly the gap away");
+  const [, edge] = spaced("AB", 100);
+  assert(blockerAt(tiles, "B", edge - 1, 5), "closer than the gap");
+  assert(!blockerAt(tiles, "B", edge, 5), "exactly the gap away");
+  assert(blockerAt(withIds([tile("B", edge, 5)]), "A", 100 + 1, 5), "and the same from the other side");
+  assert(!blockerAt(withIds([tile("B", edge, 5)]), "A", 100, 5));
   assert(blockerAt(tiles, "B", 100, 5 + LINE_STEP - 1), "overlapping line");
   assert(!blockerAt(tiles, "B", 100, 5 + LINE_STEP), "next line");
   assert(!blockerAt(tiles, "B", 100, 5, "x0"), "a tile does not block itself");
@@ -191,14 +203,17 @@ test("board: letters block each other on the same line only", () => {
 
 test("board: small marks may sit close", () => {
   const tiles = [tile("A", 100, 5)];
-  assert(!blockerAt(tiles, "*", 131, 5));
-  assert(blockerAt(tiles, "*", 130, 5));
+  const [, edge] = spaced("A*", 100);
+  assert(!blockerAt(tiles, "*", edge, 5));
+  assert(blockerAt(tiles, "*", edge - 1, 5));
+  assert(gapBetween("A", "*") < gapBetween("A", "B"));
 });
 
 test("board: finds the next free place on a line", () => {
-  const tiles = [tile("A", 100, 5), tile("B", 136, 5)];
+  const [a, b, c] = spaced("ABC", 100);
+  const tiles = [tile("A", a, 5), tile("B", b, 5)];
   equal(freeXForward(tiles, "C", 0, 5), 0);
-  equal(freeXForward(tiles, "C", 80, 5), 172);
+  equal(freeXForward(tiles, "C", 80, 5), c);
   equal(freeXForward(tiles, "C", 500, 5), null, "past the edge");
   equal(freeXForward([tile("A", BOARD_W - 40, 5)], "C", BOARD_W - 60, 5), null, "no room before the edge");
 });
@@ -206,13 +221,24 @@ test("board: finds the next free place on a line", () => {
 test("board: finds the nearest free place on a line", () => {
   const tiles = [tile("A", 100, 5)];
   equal(freeXNearest(tiles, "B", 300, 5), 300);
-  equal(freeXNearest(tiles, "B", 90, 5), 64, "nearer to the left");
-  equal(freeXNearest(tiles, "B", 120, 5), 136, "nearer to the right");
+  equal(freeXNearest(tiles, "B", 90, 5), 100 - gapBetween("B", "A") - glyphWidth("B"), "nearer to the left");
+  equal(freeXNearest(tiles, "B", 120, 5), spaced("AB", 100)[1], "nearer to the right");
   equal(freeXNearest(tiles, "B", -50, 5), 0, "kept on the board");
-  equal(freeXNearest(tiles, "B", 9999, 5), BOARD_W - 30, "kept on the board");
-  equal(freeXNearest([tile("A", 10, 5)], "B", 12, 5), 46, "no room to the left");
-  const full = Array.from({ length: 15 }, (_, i) => tile("A", i * 36, 5));
+  equal(freeXNearest(tiles, "B", 9999, 5), BOARD_W - glyphWidth("B"), "kept on the board");
+  equal(freeXNearest([tile("A", 10, 5)], "B", 12, 5), spaced("AB", 10)[1], "no room to the left");
+  const full = spaced("A".repeat(20), 0).map((x) => tile("A", x, 5));
   equal(freeXNearest(full, "B", 200, 5), null, "a full line");
+});
+
+test("board: pairs the font kerns are kerned when typed and laid out", () => {
+  const pairs = ["AV", "LT", "TA", "FA", "HE", "A*", "'A"];
+  for (const pair of pairs) {
+    const editor = new Editor(ENDLESS);
+    for (const ch of pair) editor.type(ch);
+    equal(editor.tiles.map((t) => t.x), spaced(pair), `typed ${pair}`);
+    equal(layoutText([{ text: pair, row: 2 }]).map((t) => t.x), spaced(pair), `laid out ${pair}`);
+    assert(nothingOverlaps(editor.tiles), `${pair} does not count as overlapping`);
+  }
 });
 
 test("board: typing wraps to the next line, and from the last line to the top", () => {
@@ -227,7 +253,9 @@ test("board: text is laid out and read back", () => {
     { row: 5, text: "DIG" },
   ]);
   equal(tiles.length, 9);
-  equal([tiles[0].x, tiles[1].x, tiles[3].x], [MARGIN_X, MARGIN_X + 36, MARGIN_X + 3 * 36 + WORD_GAP]);
+  const [h, e, j] = spaced("HEJ");
+  equal([tiles[0].x, tiles[1].x, tiles[2].x], [h, e, j]);
+  equal(tiles[3].x, after("J", j) + WORD_GAP, "a space after HEJ");
   equal(readLines(tiles), ["HEJ MED", "DIG"]);
   assert(nothingOverlaps(tiles));
 });
@@ -247,34 +275,16 @@ test("board: the original reads as it should", () => {
   assert(nothingOverlaps(ORIGINAL.tiles));
 });
 
-test("scatter: a few leftovers land in a pile at the bottom", () => {
-  const message = layoutText([{ row: 2, text: "HEJ" }]);
-  const leftovers = layoutText([{ row: 2, text: "ABCDEFGHIJ" }]);
+test("leftovers: put aside, loose, all of them, some upside down", () => {
+  const leftovers = layoutText([{ row: 2, text: "ABCDEFGHIJW" }]);
   for (let seed = 1; seed <= 20; seed += 1) {
-    const pile = scatterLeftovers(message, leftovers, seededRandom(seed));
-    equal(pile.map((t) => t.ch).sort().join(""), "ABCDEFGHIJ");
-    assert(pile.every((t) => t.loose && t.row >= 21 && t.row <= ROW_MAX), "in the pile area");
-    assert(nothingOverlaps([...message, ...pile]), `overlap with seed ${seed}`);
+    const aside = putAside(leftovers, seededRandom(seed));
+    equal(aside.map((t) => t.ch).sort().join(""), "ABCDEFGHIJW");
+    assert(aside.every((t) => t.loose && t.x >= 0 && t.x <= BOARD_W - glyphWidth(t.ch) && t.row === ROW_MAX), "a valid place");
+    assert(decodeBoard(encodeBoard({ tiles: aside, createdAt: 0 })).tiles.length === aside.length, "can be saved");
   }
-});
-
-test("scatter: many leftovers creep up towards the message, without overlapping", () => {
-  const message = ORIGINAL.tiles.slice(0, 3).map((t, i) => tile(t.ch, 16 + i * 36, 2));
-  const leftovers = ORIGINAL.tiles.slice(3);
-  for (let seed = 1; seed <= 20; seed += 1) {
-    const pile = scatterLeftovers(message, leftovers, seededRandom(seed));
-    equal(pile.length, leftovers.length);
-    assert(pile.every((t) => t.row >= 2 + LINE_STEP), "below the message");
-    assert(nothingOverlaps([...message, ...pile]), `overlap with seed ${seed}`);
-  }
-});
-
-test("scatter: a message that fills the board still gets its leftovers", () => {
-  const rows = [2, 5, 8, 11, 14, 17, 20, 23, 26, 29];
-  const message = layoutText(rows.map((row) => ({ row, text: "AAAAAAAAAAAAA" })));
-  const pile = scatterLeftovers(message, layoutText([{ row: 2, text: "WWWW" }]), seededRandom(1));
-  equal(pile.length, 4);
-  assert(pile.every((t) => t.x >= 0 && t.x <= BOARD_W - glyphWidth("W") && t.row >= ROW_MIN && t.row <= ROW_MAX));
+  const flipped = putAside(leftovers.concat(leftovers, leftovers), seededRandom(3)).filter((t) => t.flip).length;
+  assert(flipped > 0 && flipped < 33, `some turned, got ${flipped}`);
 });
 
 // --- Editing -------------------------------------------------------------------------
@@ -289,9 +299,10 @@ const text = (editor) => readLines(editor.tiles).join("/");
 test("editor: typing takes letters from the previous message", () => {
   const { pool, editor } = newEditor();
   equal([editor.type("N"), editor.type("E"), editor.type("J")], ["ok", "ok", "ok"]);
-  equal(editor.tiles.map((t) => [t.ch, t.x, t.row]), [["N", 16, 2], ["E", 52, 2], ["J", 88, 2]]);
+  const [n, e, j] = spaced("NEJ");
+  equal(editor.tiles.map((t) => [t.ch, t.x, t.row]), [["N", n, 2], ["E", e, 2], ["J", j, 2]]);
   equal(pool.leftovers.length, 48);
-  equal(editor.cursor, { x: 124, row: 2 });
+  equal(editor.cursor, { x: after("J", j), row: 2 });
   equal(editor.type("J"), "missing", "there is only one J");
   equal(editor.type("Q"), "missing");
 });
@@ -324,12 +335,12 @@ test("editor: space, new line and backspace", () => {
   editor.backspace();
   equal(text(editor), "E L", "the I is gone");
   editor.backspace();
-  equal(editor.cursor, { x: 16 + 30 + 6 + WORD_GAP + 25 + 6, row: 2 }, "back on the first line");
+  equal(editor.cursor, { x: after("L", after("E", MARGIN_X) + WORD_GAP), row: 2 }, "back on the first line");
   editor.backspace();
   equal(text(editor), "E", "the L is gone");
   editor.backspace();
   editor.backspace();
-  equal([editor.tiles.length, editor.cursor, pool.leftovers.length], [0, { x: 16, row: 2 }, 51]);
+  equal([editor.tiles.length, editor.cursor, pool.leftovers.length], [0, { x: MARGIN_X, row: 2 }, 51]);
   editor.backspace();
   equal(editor.tiles.length, 0, "nothing more to take away");
 });
@@ -340,7 +351,7 @@ test("editor: after the cursor is moved, backspace takes the letter before it", 
   editor.cursorAfter(editor.tiles[1].id);
   editor.backspace();
   equal(text(editor), "S LLE");
-  equal(editor.cursor.x, 52);
+  equal(editor.cursor.x, spaced("SA")[1]);
   editor.type("A");
   equal(text(editor), "SALLE", "typed back into the hole");
 
@@ -359,9 +370,10 @@ test("editor: typing into text pushes on to the next free place", () => {
 
 test("editor: a line that is full continues on the next", () => {
   const editor = new Editor(ENDLESS);
-  for (let i = 0; i < 15; i += 1) editor.type("A");
-  equal(editor.tiles.filter((t) => t.row === 2).length, 14);
-  equal([editor.tiles[14].x, editor.tiles[14].row], [16, 5]);
+  const perLine = spaced("A".repeat(30)).filter((x) => x + glyphWidth("A") <= BOARD_W).length;
+  for (let i = 0; i <= perLine; i += 1) editor.type("A");
+  equal(editor.tiles.filter((t) => t.row === 2).length, perLine);
+  equal([editor.tiles[perLine].x, editor.tiles[perLine].row], [MARGIN_X, 5]);
 });
 
 test("editor: reports a full board", () => {
@@ -379,14 +391,15 @@ test("editor: reports a full board", () => {
 test("editor: letters can be dropped, moved, turned and taken off", () => {
   const { pool, editor } = newEditor();
   editor.type("A");
-  equal(editor.drop(pool.find("B"), 20, 2), "ok");
+  equal(editor.drop(pool.find("B"), MARGIN_X + 4, 2), "ok");
   const [a, b] = editor.tiles;
-  equal([b.x, b.row], [52, 2], "dropped next to the A, not on it");
+  const [, nextToA] = spaced("AB");
+  equal([b.x, b.row], [nextToA, 2], "dropped next to the A, not on it");
 
   editor.moveTo(b.id, 200, 9.4);
   equal([b.x, b.row], [200, 9]);
-  editor.moveTo(b.id, 18, 2);
-  equal(b.x, 52, "pushed off the A again");
+  editor.moveTo(b.id, MARGIN_X + 2, 2);
+  equal(b.x, nextToA, "pushed off the A again");
   editor.moveTo(a.id, 16, 500);
   equal(a.row, ROW_MAX, "kept on the board");
 
@@ -403,7 +416,7 @@ test("editor: clear gives every letter back", () => {
   const { pool, editor } = newEditor();
   for (const ch of "LEBBE") editor.type(ch);
   editor.clear();
-  equal([editor.tiles.length, pool.leftovers.length, editor.cursor], [0, 51, { x: 16, row: 2 }]);
+  equal([editor.tiles.length, pool.leftovers.length, editor.cursor], [0, 51, { x: MARGIN_X, row: 2 }]);
 });
 
 test("editor: an unfinished message can be put back", () => {
@@ -421,8 +434,9 @@ test("editor: an unfinished message can be put back", () => {
 
 test("editor: an existing board can be loaded and written on", () => {
   const editor = new Editor(ENDLESS);
-  editor.load([tile("H", 16, 2), tile("I", 52, 2)]);
-  equal(editor.cursor, { x: 78, row: 2 }, "the cursor is after the text");
+  const [h, i] = spaced("HI");
+  editor.load([tile("H", h, 2), tile("I", i, 2)]);
+  equal(editor.cursor, { x: after("I", i), row: 2 }, "the cursor is after the text");
   editor.type("Q");
   equal(text(editor), "HIQ");
 });
@@ -688,17 +702,29 @@ test("page: the tray types too", async () => {
   equal(composedText(), "S<");
 });
 
-test("page: tapping a letter uses it, tapping it again takes it back", async () => {
+test("page: tapping a letter moves it over, tapping it there puts it back", async () => {
   await openApp();
   const letter = $$("#sourceBoard .tile")[3];
   tap(letter);
   equal(composedText(), letter.dataset.ch);
   assert(letter.classList.contains("is-used"));
-  tap(letter);
-  equal(composed().length, 1, "a double tap does not take it straight back");
-  await sleep(400);
-  tap(letter);
-  equal([composed().length, usedCount()], [0, 0]);
+  equal(win().getComputedStyle(letter).visibility, "hidden", "it has left the board");
+  tap(composed()[0]);
+  await until(() => composed().length === 0, "the letter to go back");
+  equal(usedCount(), 0);
+  equal(win().getComputedStyle(letter).visibility, "visible");
+});
+
+test("page: a saved board has its leftovers on the table, and they can be used", async () => {
+  await openApp();
+  typeText("nej");
+  await saveAs("Ann");
+  $("#shareDialog").close();
+  equal([$$("#sourceBoard .board-field .tile").length, $$("#sourceBoard .board-table .tile").length], [3, 48]);
+  assert(!$("#sourceBoard .board-table").hidden);
+  assert($("#composeBoard .board-table").hidden, "nothing on the table of the new board");
+  tap($$("#sourceBoard .board-table .tile")[0]);
+  equal(composed().length, 1);
 });
 
 test("page: a letter can be dragged from one board to the other", async () => {
@@ -724,15 +750,16 @@ test("page: letters on the new board can be moved, turned and dragged off", asyn
   typeText("sal");
   const [s, a] = composed();
   const scale = $("#composeBoard .board-field").getBoundingClientRect().width / 520;
+  const [sx, ax] = spaced("SA");
 
   drag(a, 100 * scale, 60 * scale);
-  equal(place(a), [52 + 100, 2 + 3], "moved 100 units right and 3 grooves down");
+  equal(place(a), [ax + 100, 2 + 3], "moved 100 units right and 3 grooves down");
 
-  drag(a, -136 * scale, -60 * scale);
-  equal(place(a), [52, 2], "and back next to the S");
+  drag(a, -(100 + ax - sx) * scale, -60 * scale);
+  equal(place(a), [ax, 2], "and back next to the S");
   drag(a, -30 * scale, 0);
   equal(place(a)[1], 2);
-  assert(place(a)[0] >= 52 || place(a)[0] + 30 + 6 <= 16, "never on top of the S");
+  assert(place(a)[0] >= ax || place(a)[0] + glyphWidth("A") + gapBetween("A", "S") <= sx, "never on top of the S");
 
   tap(s);
   tap(s);
@@ -741,6 +768,35 @@ test("page: letters on the new board can be moved, turned and dragged off", asyn
   drag(s, -400, 0);
   equal(composedText(), "AL", "dragged off the board");
   equal(usedCount(), 2);
+});
+
+test("page: a letter dragged off the new board follows the pointer, and goes back when let go", async () => {
+  await openApp();
+  typeText("sal");
+  const [s] = composed();
+  const field = $("#composeBoard .board-field");
+  const start = place(s);
+  const from = centre(s);
+  const over = centre($("#sourceBoard .board-field"));
+  pointer("pointerdown", s, from);
+  pointer("pointermove", field, { x: from.x - 20, y: from.y });
+  pointer("pointermove", field, over);
+  assert(s.classList.contains("is-lifted"), "the letter is lifted off the board");
+  equal(place(s), start, "it left its groove where it was");
+  const at = centre(s);
+  assert(Math.abs(at.x - over.x) < 2 && Math.abs(at.y - over.y) < 2, "and sits under the pointer, over the other board");
+  pointer("pointerup", field, over);
+  equal(composedText(), "AL");
+  equal(usedCount(), 2);
+});
+
+test("page: tapping a letter on the new board takes it back", async () => {
+  await openApp();
+  typeText("sal");
+  tap(composed()[1]);
+  equal(composed().length, 3, "not straight away, a second tap would turn it");
+  await until(() => composed().length === 2, "the letter to go back");
+  equal([composedText(), usedCount()], ["SL", 2]);
 });
 
 test("page: tapping the board moves the cursor", async () => {
@@ -757,6 +813,20 @@ test("page: tapping the board moves the cursor", async () => {
   press("ArrowLeft");
   press("b");
   equal(place(composed()[1])[1], 19);
+});
+
+test("page: Bland puts every letter that is left on the new board, in some order, the right way up", async () => {
+  await openApp();
+  typeText("nej");
+  $("#shuffleButton").click();
+  equal([composed().length, usedCount()], [51, 51]);
+  const sorted = (nodes) => nodes.map((node) => node.dataset.ch).sort().join("");
+  equal(sorted(composed()), sorted($$("#sourceBoard .tile")));
+  equal(composedText().slice(0, 3), "NEJ", "what was there stays");
+  assert(composed().every((node) => !turned(node)), "none upside down");
+  assert(nothingOverlaps(composed().map((node) => ({ ch: node.dataset.ch, x: place(node)[0], row: place(node)[1] }))));
+  $("#shuffleButton").click();
+  equal(composed().length, 51);
 });
 
 test("page: Ryd empties the board, and hands the keyboard back", async () => {
@@ -795,11 +865,11 @@ test("page: saving asks for a name, and the message becomes the next board", asy
   const code = await saveAs("  Ann  ");
   const board = decodeBoard(code);
   equal([board.author, board.parentId, board.tiles.length, messageText(board.tiles)], ["Ann", ORIGINAL.id, 51, "NEJ"]);
-  equal(board.tiles.filter((t) => t.loose).length, 48, "the unused letters are in the pile");
-  assert(nothingOverlaps(board.tiles));
+  equal(board.tiles.filter((t) => t.loose).length, 48, "the unused letters are put aside");
+  assert(nothingOverlaps(board.tiles.filter((t) => !t.loose)));
   assert(Math.abs(board.createdAt - Date.now()) < 120000, "saved now");
 
-  equal($("#shareHeading").textContent, "Gemt! Send tavlen videre");
+  equal($("#shareHeading").textContent, "Gemt! Send den videre");
   assert(!$("#submitSection").hidden && $("#submitLink").href.includes(encodeURIComponent(`board:${code}`)), "can be sent to the gallery");
   $("#shareDialog").close();
 
@@ -810,7 +880,7 @@ test("page: saving asks for a name, and the message becomes the next board", asy
   const card = $("#savedList .card");
   equal([$$("#savedList .card").length, card.querySelector(".card-title").textContent], [1, "NEJ"]);
   assert(card.classList.contains("is-active"));
-  assert(card.textContent.includes("Fra: LEBBE SALLE SIGER NEJ TIL EL I MARTS"));
+  assert(card.textContent.includes("Bygget på: LEBBE SALLE SIGER NEJ TIL EL I MARTS"));
 
   typeText("j");
   equal(composedText(), "J", "its letters can be used again");
@@ -843,7 +913,7 @@ test("page: a share link opens the board, ready to build on", async () => {
   equal(win().location.hash, "", "the code is taken out of the address");
   assert($("#toast").textContent.includes("Bo"));
   const card = $("#savedList .card");
-  assert(card.textContent.includes("modtaget") && card.classList.contains("is-active"));
+  assert(card.textContent.includes("fået sendt") && card.classList.contains("is-active"));
   equal($$("#tray [data-ch]").map((key) => key.dataset.ch).join(""), "DEHJU");
 
   typeText("hud");
@@ -853,7 +923,7 @@ test("page: a share link opens the board, ready to build on", async () => {
 test("page: a broken share link is refused politely", async () => {
   await openApp({ hash: "#b=AAAAAAAAAAAAAAAAAAAA" });
   equal($$("#sourceBoard .tile").length, 51, "still the original");
-  assert($("#toast").textContent.includes("kunne ikke"));
+  assert($("#toast").textContent.includes("virker desværre ikke"));
 });
 
 test("page: another board can be built on, and the draft can be had back", async () => {

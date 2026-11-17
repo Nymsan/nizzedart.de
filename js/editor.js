@@ -112,12 +112,28 @@ export class Editor {
 
   /** Put a piece at the cursor, as if it had been typed. */
   place(piece, flip = false) {
+    const result = this.#placeAtCursor(piece, flip);
+    if (result === "ok") this.#onChange();
+    return result;
+  }
+
+  /** Put pieces at the cursor one after the other, the right way up. Stops when the board is full. */
+  placeAll(pieces) {
+    let result = "ok";
+    for (const piece of pieces) {
+      result = this.#placeAtCursor(piece, false);
+      if (result !== "ok") break;
+    }
+    this.#onChange();
+    return result;
+  }
+
+  #placeAtCursor(piece, flip) {
     const slot = typingSlot(this.tiles, piece.ch, this.cursor);
     if (!slot) return "full";
     const tile = this.#add(piece, slot, flip);
     this.#typed.push({ cursor: this.cursor, tileId: tile.id });
     this.cursor = { x: tileRight(tile) + gapAfter(tile.ch), row: tile.row };
-    this.#onChange();
     return "ok";
   }
 

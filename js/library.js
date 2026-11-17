@@ -16,12 +16,12 @@ export const ORIGINAL = Object.freeze({
   ...decodeBoard(
     encodeBoard({
       tiles: layoutText([
-        { row: 2, text: "   LEBBE SALLE" },
-        { row: 7, text: "   SIGER NEJ TIL" },
-        { row: 12, text: "   EL I MARTS" },
-        { row: 20, text: "   DR ANDREAZZ*" },
-        { row: 23, text: "   DEN ED <" },
-        { row: 26, text: "   699     @ <" },
+        { row: 2, text: "LEBBE SALLE" },
+        { row: 7, text: "SIGER NEJ TIL" },
+        { row: 12, text: "EL I MARTS" },
+        { row: 20, text: "DR ANDREAZZ*" },
+        { row: 23, text: "DEN ED <" },
+        { row: 26, text: "699     @ <" },
       ]),
       author: "LEBBE SALLE",
       createdAt: 0,

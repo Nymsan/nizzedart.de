@@ -5,14 +5,14 @@
 // The previous message can instead be rewritten freely ("rewrite"), which
 // starts a new chain of boards with whatever letters one likes.
 
-import { messageText, rowAt, scatterLeftovers } from "./board.js";
-import { BoardView } from "./board-view.js";
+import { messageText, putAside, rowAt } from "./board.js";
+import { BoardView, DOUBLE_TAP_MS } from "./board-view.js";
 import { MAX_TILES } from "./codec.js";
 import { ENDLESS, Editor, Pool } from "./editor.js";
 import { ALPHABET, GROOVE, glyphForKey, glyphText, glyphWidth } from "./glyphs.js";
 
-/** How far outside the board (in board units) a dragged letter must be to be taken off it. */
-const LEAVE_MARGIN = 30;
+/** How far outside the board (in board units) a dragged letter must be to be lifted off it. */
+const LEAVE_MARGIN = 10;
 
 const TRAY_ACTIONS = [
   ["space", "Mellemrum"],
@@ -47,7 +47,8 @@ export class Workspace {
       byMode[name] = (...args) => (this.#rewrite ? editing : picking)[name]?.(...args);
     }
     this.#sourceView = new BoardView(sourceBoard, byMode);
-    this.#composeView = new BoardView(composeBoard, this.#editorGestures(() => this.#composer, () => this.#composeView));
+    const composing = this.#editorGestures(() => this.#composer, () => this.#composeView, { tapTakesBack: true });
+    this.#composeView = new BoardView(composeBoard, composing);
 
     // Pressing a key in the tray must not take the keyboard focus away from typing.
     tray.addEventListener("mousedown", (event) => event.preventDefault());
@@ -94,15 +95,30 @@ export class Workspace {
     this.#editor.clear();
   }
 
+  /** Put every letter that is left on the new board, in a random order. */
+  shuffle(random = Math.random) {
+    if (this.#rewrite) return;
+    const pieces = this.#pool.leftovers.map((tile) => this.#pool.piece(tile.id));
+    if (pieces.length === 0) {
+      this.#notify("Alle bogstaverne er allerede brugt");
+      return;
+    }
+    for (let i = pieces.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random() * (i + 1));
+      [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
+    }
+    if (this.#composer.placeAll(pieces) === "full") this.#notify("Der var ikke plads til dem alle på tavlen");
+  }
+
   /**
    * The tiles of the finished board, or null if nothing is written. The letters
-   * that were not used in a new message are dumped at the bottom of the board.
+   * that were not used in a new message are put aside, on the table next to the board.
    */
   result() {
     if (this.isEmpty) return null;
     if (this.#rewrite) return this.#rewrite.tiles.map(plain);
     const message = this.#composer.tiles.map(plain);
-    return [...message, ...scatterLeftovers(message, this.#pool.leftovers)];
+    return [...message, ...putAside(this.#pool.leftovers)];
   }
 
   /** Returns true if the key was meant for the board. */
@@ -147,19 +163,19 @@ export class Workspace {
 
   #type(ch, flip) {
     if (this.#rewrite && this.#rewrite.tiles.length >= MAX_TILES) {
-      this.#notify("Der kan ikke være flere bogstaver på tavlen");
+      this.#notify("Der er ikke plads til flere bogstaver på tavlen");
       return;
     }
     const result = this.#editor.type(ch, flip !== this.#flipNext);
     if (result === "missing") {
-      this.#notify(`Der er ikke flere ${glyphText(ch)} på tavlen`);
+      this.#notify(`Der er ikke flere ${glyphText(ch)} tilbage`);
       this.#shakeKey(ch);
     }
     this.#reportFull(result);
   }
 
   #reportFull(result) {
-    if (result === "full") this.#notify("Der er ikke plads til flere bogstaver");
+    if (result === "full") this.#notify("Der er ikke plads til flere bogstaver på tavlen");
   }
 
   #render() {
@@ -180,35 +196,65 @@ export class Workspace {
 
   // --- Pointer -------------------------------------------------------------
 
-  /** A board that is being written on: letters can be moved, turned and taken off. */
-  #editorGestures(getEditor, getView) {
+  /**
+   * A board that is being written on: letters can be moved, turned and taken off.
+   * Dragged off the board, a letter leaves its groove and follows the pointer,
+   * across the page if need be; let go there, it goes back where it came from.
+   * With `tapTakesBack`, a tap on a letter does that too, and the cursor is moved
+   * by tapping the board between the letters.
+   */
+  #editorGestures(getEditor, getView, { tapTakesBack = false } = {}) {
     let from = null; // where the letter was when the drag began, in board units
-    let leaving = false;
+    let carried = false; // off the board, following the pointer
+    let pendingTap = 0;
     const release = (id) => {
-      getView().mark(id, "is-leaving", false);
+      getView().lift(id, 0, 0);
       from = null;
-      leaving = false;
+      carried = false;
     };
     return {
-      tap: (id) => getEditor().cursorAfter(id),
-      doubleTap: (id) => getEditor().flip(id),
+      tap: (id) => {
+        const editor = getEditor();
+        if (!tapTakesBack) return editor.cursorAfter(id);
+        // Wait a moment: a second tap turns the letter instead.
+        clearTimeout(pendingTap);
+        pendingTap = setTimeout(() => editor.tile(id) && editor.remove(id), DOUBLE_TAP_MS);
+      },
+      doubleTap: (id) => {
+        clearTimeout(pendingTap);
+        getEditor().flip(id);
+      },
       boardTap: (event) => {
         const point = getView().pointAt(event);
         getEditor().setCursor(point.x, rowAt(point.y));
       },
       drag: (id, event, dx, dy) => {
-        const tile = getEditor().tile(id);
+        const editor = getEditor();
+        const tile = editor.tile(id);
         if (!tile) return;
         const view = getView();
-        from ??= { x: tile.x, y: tile.row * GROOVE };
-        leaving = view.pointAt(event).outside > LEAVE_MARGIN;
-        view.mark(id, "is-leaving", leaving);
-        if (leaving) return;
+        const point = view.pointAt(event);
+        from ??= { x: tile.x, row: tile.row, loose: tile.loose };
+        const wasCarried = carried;
+        carried = point.outside > LEAVE_MARGIN;
+        if (carried) {
+          // Back to where the drag began, and from there it moves with the pointer.
+          if (!wasCarried && !from.loose) editor.moveTo(id, from.x, from.row);
+          view.lift(id, dx, dy);
+          return;
+        }
+        if (wasCarried) view.lift(id, 0, 0);
+        if (from.loose) {
+          // A letter picked up from the table goes on the board under the pointer.
+          editor.moveTo(id, point.x - glyphWidth(tile.ch) / 2, rowAt(point.y));
+          return;
+        }
         const scale = view.unitsPerPixel;
-        getEditor().moveTo(id, from.x + dx * scale, rowAt(from.y + dy * scale));
+        editor.moveTo(id, from.x + dx * scale, rowAt(from.row * GROOVE + dy * scale));
       },
       drop: (id) => {
-        const takeOff = leaving;
+        // Let go off the board, a letter from the board goes back; one from the table stays there.
+        const takeOff = carried && !from?.loose;
         release(id);
         if (takeOff) getEditor().remove(id);
       },
