@@ -24,6 +24,11 @@
   --wood: #ab7a4c;
   --table: #8e6440;
 
+  /* Text that lies straight on the wooden background. */
+  --on-wood: #fff;
+  --on-wood-muted: rgba(255, 255, 255, 0.86);
+  --on-wood-shadow: 0 1px 2px rgba(40, 22, 6, 0.55);
+
   --felt: #141414;
   --groove: #1d1d1d;
   --groove-deep: #090909;
@@ -35,6 +40,7 @@
   /* Where capitals sit in a line of text. Measured from the font by js/metrics.js. */
   --cap-shift: 0em;
   --arrow-shift: 0em;
+  --at-shift: 0em;
 
   color-scheme: light;
 }
@@ -52,9 +58,27 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background-image: url("wood1.jpg");
-  color: var(--ink);
+  background: var(--table) url("wood1.jpg");
+  color: var(--on-wood);
   font: 400 1rem / 1.45 var(--ui-font);
+  text-shadow: var(--on-wood-shadow);
+}
+
+/* Everything that has its own background gets dark text again, without the shadow. */
+.btn,
+.key,
+.help,
+.card,
+.dialog,
+.toast,
+.brand,
+kbd {
+  text-shadow: none;
+}
+
+.help,
+.card {
+  color: var(--ink);
 }
 
 .site-header,
@@ -109,7 +133,7 @@ h2 {
 
 .tagline {
   margin: 0;
-  color: var(--muted);
+  color: var(--on-wood-muted);
 }
 
 /* --- Workspace -------------------------------------------------------------- */
@@ -130,7 +154,7 @@ h2 {
 }
 
 .panel.is-rewriting {
-  outline: 2px dashed var(--muted);
+  outline: 2px dashed var(--on-wood);
   outline-offset: 8px;
   border-radius: 2px;
 }
@@ -148,7 +172,7 @@ h2 {
 .byline {
   margin: 0.1rem 0 0;
   min-height: 1.2em;
-  color: var(--muted);
+  color: var(--on-wood-muted);
   font-size: 0.85rem;
 }
 
@@ -233,16 +257,19 @@ h2 {
   width: calc(var(--frame-w, 520) * var(--u));
 }
 
-/* The felt, out to the frame. */
+/* The felt, out to the frame. Each groove (its lit upper lip and the shadow
+   under it) is centred on a row, every 20 units, so a letter hangs in it by
+   its middle. */
 .board-field::before {
   content: "";
   position: absolute;
   inset: 0 calc(-20 * var(--u));
   background: repeating-linear-gradient(
     to bottom,
-    var(--felt) 0 calc(15 * var(--u)),
-    var(--groove) calc(15 * var(--u)) calc(17 * var(--u)),
-    var(--groove-deep) calc(17 * var(--u)) calc(20 * var(--u))
+    var(--groove-deep) 0 calc(2.5 * var(--u)),
+    var(--felt) calc(2.5 * var(--u)) calc(17.5 * var(--u)),
+    var(--groove) calc(17.5 * var(--u)) calc(19.5 * var(--u)),
+    var(--groove-deep) calc(19.5 * var(--u)) calc(20 * var(--u))
   );
 }
 
@@ -260,11 +287,23 @@ h2 {
   -webkit-user-select: none;
 }
 
-/* A little more to get hold of than the letter itself. */
+/* A little more to get hold of than the letter itself, and for the narrow
+   ones at least about as much as a letter: 28 units across. */
 .tile::after {
   content: "";
   position: absolute;
-  inset: 0 calc(-3 * var(--u));
+  inset: 0 calc(min(-3, (var(--w) - 28) / 2) * var(--u));
+}
+
+/* Narrow letters lie on top of their neighbours, so the wider grip is theirs. */
+.tile:is([data-ch="'"], [data-ch="*"], [data-ch="I"], [data-ch="J"], [data-ch="1"], [data-ch="7"]) {
+  z-index: 1;
+}
+
+/* The apostrophe and the asterisk sit high: their wider grip is around the
+   mark, not down beside the letters next to it. */
+.tile:is([data-ch="'"], [data-ch="*"])::after {
+  bottom: 45%;
 }
 
 .glyph {
@@ -279,6 +318,11 @@ h2 {
 .tile[data-ch="<"] .glyph {
   font-size: calc(40 * var(--u));
   translate: 0 var(--arrow-shift);
+}
+
+/* The @ hangs below the line in the font; on the board it hangs by its own middle. */
+.tile[data-ch="@"] .glyph {
+  translate: 0 var(--at-shift);
 }
 
 /* A letter that has gone into the new message has left the board. */
@@ -322,17 +366,6 @@ h2 {
 
 /* Letters on the two big boards can be picked up. */
 .workspace .tile {
-  cursor: grab;
-  touch-action: none;
-}
-
-/* The previous message is tapped, not dragged, on a touch screen, so that the page can still be scrolled. */
-.workspace #sourceBoard .tile {
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.workspace .is-rewriting #sourceBoard .tile {
   cursor: grab;
   touch-action: none;
 }
@@ -554,7 +587,7 @@ kbd {
 
 .list-note {
   margin: 0;
-  color: var(--muted);
+  color: var(--on-wood-muted);
   font-size: 0.9rem;
 }
 
@@ -656,7 +689,7 @@ kbd {
 .site-footer {
   margin-top: 1rem;
   padding-block: 2rem;
-  color: var(--muted);
+  color: var(--on-wood-muted);
   font-size: 0.86rem;
   text-align: right;
 }

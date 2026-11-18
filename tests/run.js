@@ -6,7 +6,7 @@
 // `?app=<page>` tests another page than index.html, and `?only=<text>` runs
 // only the tests with that text in their name.
 
-import { blockerAt, freeXForward, freeXNearest, layoutText, messageText, putAside, readLines, typingSlot } from "../js/board.js";
+import { blockerAt, bottomRun, freeXForward, freeXNearest, layoutText, messageText, putAside, readLines, typingSlot } from "../js/board.js";
 import { MAX_TILES, cleanAuthor, decodeBoard, encodeBoard } from "../js/codec.js";
 import { STORAGE_KEY } from "../js/config.js";
 import { ENDLESS, Editor, Pool } from "../js/editor.js";
@@ -245,6 +245,17 @@ test("board: typing wraps to the next line, and from the last line to the top", 
   const full = Array.from({ length: 15 }, (_, i) => tile("A", i * 36, 5));
   equal(typingSlot(full, "B", { x: 200, row: 5 }), { x: MARGIN_X, row: 5 + LINE_STEP });
   equal(typingSlot([], "B", { x: BOARD_W, row: ROW_MAX }), { x: MARGIN_X, row: ROW_MIN });
+});
+
+test("board: a run of letters goes on the fewest lines at the bottom", () => {
+  const one = bottomRun([], [..."ABC"]);
+  equal(one, spaced("ABC").map((x) => ({ x, row: ROW_MAX })));
+  const many = bottomRun([], [..."M".repeat(20)]);
+  equal([...new Set(many.map((slot) => slot.row))], [ROW_MAX - LINE_STEP, ROW_MAX], "two lines, the last one at the bottom");
+  const below = [tile("A", 200, ROW_MAX)];
+  const around = bottomRun(below, [..."BBBBBBBB"]);
+  assert(nothingOverlaps([...below, ...around.map((slot) => ({ ch: "B", ...slot }))]), "around what is there");
+  equal(bottomRun([], [..."M".repeat(500)]), null, "too many");
 });
 
 test("board: text is laid out and read back", () => {
@@ -744,7 +755,37 @@ test("page: a letter can be dragged from one board to the other", async () => {
   equal(composed().length, 1, "dropped outside the other board, nothing happens");
 
   drag($$("#sourceBoard .tile")[2], to.x - from.x, to.y - from.y, "touch");
-  equal(composed().length, 1, "a finger scrolls instead of dragging");
+  equal(composed().length, 2, "a finger drags too");
+});
+
+test("page: letters on the previous message can be moved about there", async () => {
+  await openApp();
+  const letter = $$("#sourceBoard .tile")[0];
+  const [x, row] = place(letter);
+  const scale = $("#sourceBoard .board-field").getBoundingClientRect().width / 520;
+  drag(letter, 0, 9 * LINE_STEP * 20 * scale);
+  equal(place(letter), [x, row + 9 * LINE_STEP], "moved down nine lines");
+  equal([composed().length, usedCount()], [0, 0], "and not used");
+  assert(!letter.classList.contains("is-lifted"), "put down");
+
+  drag(letter, 200 * scale, 0, "touch");
+  equal(place(letter), [x + 200, row + 9 * LINE_STEP], "with a finger too");
+
+  tap(letter);
+  equal(composedText(), letter.dataset.ch, "it can still be used");
+});
+
+test("page: a letter used and given back does not land on one moved into its place", async () => {
+  await openApp();
+  const [first, second] = $$("#sourceBoard .tile");
+  tap(first);
+  const scale = $("#sourceBoard .board-field").getBoundingClientRect().width / 520;
+  drag(second, (place(first)[0] - place(second)[0]) * scale, 0);
+  equal(place(second)[0], place(first)[0], "moved where the first one was");
+  tap(composed()[0]);
+  await until(() => usedCount() === 0 && composed().length === 0, "the letter to go back");
+  const tiles = $$("#sourceBoard .board-field .tile").map((node) => ({ ch: node.dataset.ch, x: place(node)[0], row: place(node)[1] }));
+  assert(nothingOverlaps(tiles), "nothing on top of anything");
 });
 
 test("page: letters on the new board can be moved, turned and dragged off", async () => {
@@ -827,6 +868,9 @@ test("page: Bland puts every letter that is left on the new board, in some order
   equal(composedText().slice(0, 3), "NEJ", "what was there stays");
   assert(composed().every((node) => !turned(node)), "none upside down");
   assert(nothingOverlaps(composed().map((node) => ({ ch: node.dataset.ch, x: place(node)[0], row: place(node)[1] }))));
+  const rows = composed().slice(3).map((node) => place(node)[1]);
+  equal(Math.max(...rows), ROW_MAX, "at the bottom of the board");
+  assert(Math.min(...rows) > ROW_MAX / 2, "and only there");
   $("#shuffleButton").click();
   equal(composed().length, 51);
 });

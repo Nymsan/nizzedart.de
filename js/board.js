@@ -91,6 +91,35 @@ export function typingSlot(tiles, ch, cursor) {
   return null;
 }
 
+/**
+ * Where the letters `chars` land when typed one after the other from the start
+ * of line `top`, kept between that line and the last one. Null if they do not
+ * all fit there.
+ */
+export function typingRun(tiles, chars, top) {
+  const placed = [...tiles];
+  const slots = [];
+  let cursor = { x: MARGIN_X, row: top };
+  for (const ch of chars) {
+    const slot = typingSlot(placed, ch, cursor);
+    if (!slot || slot.row < top) return null; // wrapped around to the top of the board
+    const tile = { ch, ...slot };
+    placed.push(tile);
+    slots.push(slot);
+    cursor = { x: tileRight(tile) + gapAfter(ch), row: slot.row };
+  }
+  return slots;
+}
+
+/** The first line of the fewest lines at the bottom of the board that `chars` fit on, typed in, or null. */
+export function bottomRun(tiles, chars) {
+  for (let top = ROW_MAX; top >= ROW_MIN; top -= LINE_STEP) {
+    const slots = typingRun(tiles, chars, top);
+    if (slots) return slots;
+  }
+  return null;
+}
+
 /** Lay out lines of text the way typing them would. `lines` is `[{ text, row }]`. */
 export function layoutText(lines) {
   const tiles = [];

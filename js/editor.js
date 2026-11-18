@@ -5,6 +5,8 @@
 // stand-in that has to be turned upside down to read as `ch`.
 
 import {
+  blockerAt,
+  bottomRun,
   clamp,
   clampRow,
   freeXNearest,
@@ -15,10 +17,31 @@ import {
 } from "./board.js";
 import { BOARD_W, LINE_STEP, STAND_IN, WORD_GAP, gapAfter } from "./glyphs.js";
 
-/** The letters of the previous message: each can be used once. */
+/**
+ * The letters of the previous message: each can be used once. They can be
+ * moved about on their own board too, which changes nothing but where they lie.
+ */
 export class Pool {
   constructor(tiles) {
     this.tiles = tiles.map((tile, i) => ({ ...tile, id: `s${i}`, used: false }));
+  }
+
+  tile(id) {
+    return this.#tile(id) ?? null;
+  }
+
+  /** Move an unused letter as close to (x, row) on its board as it fits. It stays put if the row has no room. */
+  moveTo(id, x, row) {
+    const tile = this.#tile(id);
+    if (!tile || tile.used) return;
+    const free = freeXNearest(this.#onBoard(), tile.ch, x, clampRow(row), id);
+    if (free !== null) Object.assign(tile, { x: free, row: clampRow(row), loose: false });
+  }
+
+  /** Put a letter back exactly where it was, `{ x, row, loose }`, as at the start of a drag. */
+  setPlace(id, { x, row, loose }) {
+    const tile = this.#tile(id);
+    if (tile) Object.assign(tile, { x, row, loose });
   }
 
   find(ch) {
@@ -38,8 +61,18 @@ export class Pool {
     this.#tile(piece.src).used = true;
   }
 
+  /**
+   * The letter comes back to its board, where it was. If another letter has
+   * been moved there in the meantime, it goes to the nearest free place on its
+   * line, or on the table if the line is full.
+   */
   putBack(src) {
-    this.#tile(src).used = false;
+    const tile = this.#tile(src);
+    tile.used = false;
+    if (tile.loose || !blockerAt(this.#onBoard(), tile.ch, tile.x, tile.row, tile.id)) return;
+    const free = freeXNearest(this.#onBoard(), tile.ch, tile.x, tile.row, tile.id);
+    if (free === null) tile.loose = true;
+    else tile.x = free;
   }
 
   get leftovers() {
@@ -48,6 +81,11 @@ export class Pool {
 
   #tile(id) {
     return this.tiles.find((tile) => tile.id === id);
+  }
+
+  /** The letters that are to be seen on the board: not used, and not lying on the table. */
+  #onBoard() {
+    return this.tiles.filter((tile) => !tile.used && !tile.loose);
   }
 
   #firstUnused(ch) {
@@ -126,6 +164,19 @@ export class Editor {
     }
     this.#onChange();
     return result;
+  }
+
+  /**
+   * Put pieces at the bottom of the board, the right way up, on as few lines as
+   * they fit on. The cursor stays where it is. Where there is no room at the
+   * bottom, they go at the cursor instead.
+   */
+  placeAtBottom(pieces) {
+    const slots = bottomRun(this.tiles, pieces.map((piece) => piece.ch));
+    if (!slots) return this.placeAll(pieces);
+    pieces.forEach((piece, i) => this.#add(piece, slots[i], false));
+    this.#onChange();
+    return "ok";
   }
 
   #placeAtCursor(piece, flip) {

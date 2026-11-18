@@ -95,7 +95,7 @@ export class Workspace {
     this.#editor.clear();
   }
 
-  /** Put every letter that is left on the new board, in a random order. */
+  /** Put every letter that is left at the bottom of the new board, in a random order. */
   shuffle(random = Math.random) {
     if (this.#rewrite) return;
     const pieces = this.#pool.leftovers.map((tile) => this.#pool.piece(tile.id));
@@ -107,7 +107,7 @@ export class Workspace {
       const j = Math.floor(random() * (i + 1));
       [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
     }
-    if (this.#composer.placeAll(pieces) === "full") this.#notify("Der var ikke plads til dem alle på tavlen");
+    if (this.#composer.placeAtBottom(pieces) === "full") this.#notify("Der var ikke plads til dem alle på tavlen");
   }
 
   /**
@@ -262,26 +262,71 @@ export class Workspace {
     };
   }
 
-  /** The previous message while its letters are being picked for the new one. */
+  /**
+   * The previous message while its letters are being picked for the new one.
+   * A letter can be moved about on this board, like on the new one. Dragged off
+   * the board, it follows the pointer: let go over the new board, it is used
+   * there; let go anywhere else, it goes back to where it was.
+   */
   #pickingGestures() {
+    let from = null; // where the letter was when the drag began
+    let carried = false; // off the board, following the pointer
+    const pool = () => this.#pool;
+    const view = () => this.#sourceView;
+    const release = (id) => {
+      view().lift(id, 0, 0);
+      from = null;
+      carried = false;
+    };
     return {
       // Tap a letter to use it at the cursor; tap a used letter to take it back.
       tap: (id) => {
-        const piece = this.#pool.piece(id);
+        const piece = pool().piece(id);
         if (piece) this.#reportFull(this.#composer.place(piece, this.#flipNext));
         else this.#composer.removeBySource(id);
       },
-      // On a touch screen, dragging on this board scrolls the page instead.
-      canDrag: (id, event) => event.pointerType === "mouse" && this.#pool.piece(id) !== null,
-      drag: (id, event, dx, dy) => this.#sourceView.lift(id, dx, dy),
+      canDrag: (id) => pool().piece(id) !== null,
+      drag: (id, event, dx, dy) => {
+        const tile = pool().tile(id);
+        if (!tile || tile.used) return;
+        const point = view().pointAt(event);
+        from ??= { x: tile.x, row: tile.row, loose: tile.loose };
+        const wasCarried = carried;
+        carried = point.outside > LEAVE_MARGIN;
+        if (carried) {
+          // Back to where the drag began, and from there it moves with the pointer.
+          if (!wasCarried) {
+            pool().setPlace(id, from);
+            this.#render();
+          }
+          view().lift(id, dx, dy);
+          return;
+        }
+        if (wasCarried) view().lift(id, 0, 0);
+        if (from.loose) {
+          // A letter picked up from the table goes on the board under the pointer.
+          pool().moveTo(id, point.x - glyphWidth(tile.ch) / 2, rowAt(point.y));
+        } else {
+          const scale = view().unitsPerPixel;
+          pool().moveTo(id, from.x + dx * scale, rowAt(from.row * GROOVE + dy * scale));
+        }
+        this.#render();
+      },
       drop: (id, event) => {
-        this.#sourceView.lift(id, 0, 0);
-        const piece = this.#pool.piece(id);
+        const wasCarried = carried;
+        release(id);
+        // Let go on this board, it stays where it was put.
+        if (!wasCarried) return;
+        const piece = pool().piece(id);
         const point = this.#composeView.pointAt(event);
         if (!piece || point.outside > 0) return;
         this.#reportFull(this.#composer.drop(piece, point.x - glyphWidth(piece.ch) / 2, rowAt(point.y), this.#flipNext));
       },
-      cancel: (id) => this.#sourceView.lift(id, 0, 0),
+      cancel: (id) => {
+        if (from) pool().setPlace(id, from);
+        release(id);
+        this.#render();
+      },
     };
   }
 
