@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Measure the board's letters in a font file, for the tables in js/glyphs.js.
+"""Measure the board's letters in the board font, for the table in js/glyph-metrics.js.
 
-Each letter on a board is as wide as its advance in the font: the letter plus
-the space the type designer put on either side of it. Pairs the font kerns
-(A next to V, L next to T, ...) get the font's kerning too. Everything is
-measured at the size, weight and optical size the board draws its letters in
-(see .glyph in styles.css), and written out in board units as js/glyph-metrics.js:
+A letter on the board is a piece cut out around its own shape: it is as wide as
+its ink, and the pieces are spaced evenly, edge to edge, without the font's
+side bearings or kerning. The piece is drawn so that its ink is centred across
+it, and so that the middle of the capitals is on the groove. The @ is centred
+on its own ink instead: it has no place in a line of capitals. The arrow is not
+a letter of the font but a drawing of its own (ARROW in js/board-view.js),
+centred on its piece.
 
-    python3 scripts/glyph_metrics.py fonts/FiraSans-SemiBold.woff2 > js/glyph-metrics.js
+Everything is measured at the weight and size the board draws its letters in
+(see .glyph in styles.css), and written out as js/glyph-metrics.js:
+
+    python3 scripts/glyph_metrics.py fonts/NationalPark.woff2 > js/glyph-metrics.js
 
 Needs fontTools (and brotli to read .woff2).
 """
@@ -19,127 +24,90 @@ from fontTools.pens.boundsPen import BoundsPen
 from fontTools.ttLib import TTFont
 
 # Keep in step with js/glyphs.js and .glyph in styles.css.
-ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ0123456789@*'<"
-PRINTED = {"<": "←"}
-FONT_SIZE = 46.4  # board units
-ARROW_SIZE = 40
-AXES = {"wght": 600}  # only used if the font is a variable font
+ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ0123456789@*'>-_,"
+FONT_SIZE = 58.93  # board units: capitals 41.25 units tall
+WEIGHT = 650
+CENTRED = {"@"}  # centred on their own ink, not on the capitals
+DRAWN = {">": 50.57}  # pieces that are drawings, not letters of the font: their width in board units
 
 
 def instance(font):
-    """The font at the weight and optical size of the board, if it is a variable font."""
+    """The font at the weight of the board, if it is a variable font."""
     if "fvar" not in font:
         return font
     from fontTools.varLib import instancer
 
     location = {}
     for axis in font["fvar"].axes:
-        wanted = AXES.get(axis.axisTag, axis.defaultValue)
+        wanted = WEIGHT if axis.axisTag == "wght" else axis.defaultValue
         location[axis.axisTag] = min(axis.maxValue, max(axis.minValue, wanted))
     return instancer.instantiateVariableFont(font, location)
 
 
-def kerning_lookups(gpos):
-    """The pair adjustment subtables of the font's 'kern' feature, in the order they apply."""
-    table = gpos.table
-    indices = sorted(
-        {index for record in table.FeatureList.FeatureRecord if record.FeatureTag == "kern" for index in record.Feature.LookupListIndex}
-    )
-    for index in indices:
-        lookup = table.LookupList.Lookup[index]
-        subtables = []
-        for subtable in lookup.SubTable:
-            if lookup.LookupType == 9:
-                subtable = subtable.ExtSubTable
-            if subtable.LookupType == 2:
-                subtables.append(subtable)
-        if subtables:
-            yield subtables
-
-
-def pair_kerning(subtables, left, right):
-    """The kerning of one lookup for a pair of glyph names, or None if the lookup has nothing to say."""
-    for subtable in subtables:
-        if left not in subtable.Coverage.glyphs:
-            continue
-        if subtable.Format == 1:
-            pairs = subtable.PairSet[subtable.Coverage.glyphs.index(left)].PairValueRecord
-            for record in pairs:
-                if record.SecondGlyph == right:
-                    return getattr(record.Value1, "XAdvance", 0) or 0
-            continue
-        first = subtable.ClassDef1.classDefs.get(left, 0)
-        second = subtable.ClassDef2.classDefs.get(right, 0)
-        value = subtable.Class1Record[first].Class2Record[second].Value1
-        return getattr(value, "XAdvance", 0) or 0
-    return None
+def vertical_metrics(font):
+    """Ascent and descent of a line, as browsers lay it out."""
+    os2 = font["OS/2"]
+    if os2.fsSelection & (1 << 7):  # USE_TYPO_METRICS
+        return os2.sTypoAscender, -os2.sTypoDescender
+    return font["hhea"].ascent, -font["hhea"].descent
 
 
 def measure(path):
     font = instance(TTFont(path))
-    per_unit = 1 / font["head"].unitsPerEm
+    upm = font["head"].unitsPerEm
     cmap = font.getBestCmap()
     glyphs = font.getGlyphSet()
-    names = {ch: cmap.get(ord(PRINTED.get(ch, ch))) for ch in ALPHABET}
+    ascent, descent = vertical_metrics(font)
+    cap_middle = font["OS/2"].sCapHeight / 2
 
-    def size(ch):
-        return ARROW_SIZE if ch == "<" else FONT_SIZE
+    # A glyph is laid out in a box one font size tall (line-height: 1) and as
+    # wide as its advance, which the piece centres. Below, offsets are from the
+    # middle of that box, in font units, downwards and to the right.
+    baseline = (ascent - descent) / 2
 
-    widths, ink, missing = {}, {}, []
-    for ch, name in names.items():
+    pieces, missing = {}, []
+    for ch in ALPHABET:
+        if ch in DRAWN:
+            pieces[ch] = (DRAWN[ch], 0, 0)
+            continue
+        name = cmap.get(ord(ch))
         if name is None:
             missing.append(ch)
             continue
-        widths[ch] = font["hmtx"][name][0] * per_unit * size(ch)
         pen = BoundsPen(glyphs)
         glyphs[name].draw(pen)
-        if pen.bounds:
-            x_min, _, x_max, _ = pen.bounds
-            ink[ch] = (x_max - x_min) * per_unit * size(ch)
+        x_min, y_min, x_max, y_max = pen.bounds
+        advance = font["hmtx"][name][0]
 
-    kerning = {}
-    if "GPOS" in font:
-        lookups = list(kerning_lookups(font["GPOS"]))
-        for left, left_name in names.items():
-            for right, right_name in names.items():
-                if left_name is None or right_name is None or "<" in (left, right):
-                    continue
-                total = sum(pair_kerning(subtables, left_name, right_name) or 0 for subtables in lookups)
-                if total:
-                    kerning[left + right] = total * per_unit * FONT_SIZE
-    return widths, ink, kerning, missing
+        ink_x = (x_min + x_max) / 2 - advance / 2  # ink middle, from the middle of the box
+        ink_y = baseline - (y_min + y_max) / 2
+        # Where the ink middle should end up, from the middle of the piece.
+        want_y = 0 if ch in CENTRED else cap_middle - (y_min + y_max) / 2
+        dx = -ink_x
+        dy = want_y - ink_y
+        pieces[ch] = ((x_max - x_min) * FONT_SIZE / upm, dx / upm, dy / upm)
+    return pieces, missing
 
 
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
-    widths, ink, kerning, missing = measure(sys.argv[1])
+    pieces, missing = measure(sys.argv[1])
     if missing:
         sys.exit(f"Not in the font: {' '.join(missing)}")
 
     print(f"// Measured from {sys.argv[1]} by scripts/glyph_metrics.py. Do not edit by hand.")
-    print("// Board units: how wide each letter is, and what the font kerns between two letters.")
+    print("// For each letter: how wide its piece is, in board units, and how far to move")
+    print("// the glyph, in em, so its ink sits in the middle of the piece.")
     print()
-    entries = ", ".join(f"{js_key(ch)}: {round(width)}" for ch, width in widths.items())
-    print(f"export const WIDTHS = {{ {entries} }};")
-    print()
-    pairs = [f"{js_string(pair)}: {round(value)}" for pair, value in sorted(kerning.items()) if round(value)]
-    print("export const KERNING = {")
-    for start in range(0, len(pairs), 10):
-        print("  " + ", ".join(pairs[start : start + 10]) + ",")
+    print("export const PIECES = {")
+    for ch, (width, dx, dy) in pieces.items():
+        print(f"  {js_key(ch)}: [{round(width)}, {dx:.4f}, {dy:.4f}],")
     print("};")
-
-    print(file=sys.stderr)
-    for ch, width in widths.items():
-        print(f"  {ch}  advance {width:6.2f}  ink {ink.get(ch, 0):6.2f}", file=sys.stderr)
 
 
 def js_key(ch):
-    return ch if ch.isalnum() else js_string(ch)
-
-
-def js_string(text):
-    return json.dumps(text, ensure_ascii=False)
+    return ch if ch.isalnum() else json.dumps(ch, ensure_ascii=False)
 
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ export function showShareDialog(board, { title, heading, canSubmit }) {
   $("#shareTitle").textContent = board.author ? `${title} — af ${board.author}` : title;
   new BoardView($("#sharePreview")).render(board.tiles, { label: title });
   $("#shareLink").value = url;
-  $("#copyButton").textContent = "Kopiér link";
+  $("#copyButton").textContent = "kopiér link";
   $("#nativeShareButton").hidden = typeof navigator.share !== "function";
   $("#submitSection").hidden = submitUrl === null;
   if (submitUrl) $("#submitLink").href = submitUrl;
@@ -43,7 +43,7 @@ export function showShareDialog(board, { title, heading, canSubmit }) {
     const copied = await copyText(url);
     // Without clipboard access, leave the link selected so it can be copied by hand.
     if (!copied) $("#shareLink").select();
-    $("#copyButton").textContent = copied ? "Kopieret!" : "Markeret – kopiér selv";
+    $("#copyButton").textContent = copied ? "kopieret!" : "markeret – kopiér selv";
   };
   $("#nativeShareButton").onclick = () => {
     navigator.share({ title: "nizzedart.de", text: title, url }).catch(() => {

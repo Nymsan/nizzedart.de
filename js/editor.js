@@ -5,8 +5,6 @@
 // stand-in that has to be turned upside down to read as `ch`.
 
 import {
-  blockerAt,
-  bottomRun,
   clamp,
   clampRow,
   freeXNearest,
@@ -18,30 +16,19 @@ import {
 import { BOARD_W, LINE_STEP, STAND_IN, WORD_GAP, gapAfter } from "./glyphs.js";
 
 /**
- * The letters of the previous message: each can be used once. They can be
- * moved about on their own board too, which changes nothing but where they lie.
+ * The letters of the previous message. Each is either on the board ("used",
+ * as a tile of the editor) or lying on the table next to it, at `table`:
+ * `{ x, y, flip }` in felt units, x its left edge and y its middle. A letter
+ * that has just come off the board has no place on the table yet (null): the
+ * workspace finds it one.
  */
 export class Pool {
   constructor(tiles) {
-    this.tiles = tiles.map((tile, i) => ({ ...tile, id: `s${i}`, used: false }));
+    this.tiles = tiles.map(({ ch, x, row, flip, loose }, i) => ({ ch, x, row, flip, loose, id: `s${i}`, used: false, table: null }));
   }
 
   tile(id) {
     return this.#tile(id) ?? null;
-  }
-
-  /** Move an unused letter as close to (x, row) on its board as it fits. It stays put if the row has no room. */
-  moveTo(id, x, row) {
-    const tile = this.#tile(id);
-    if (!tile || tile.used) return;
-    const free = freeXNearest(this.#onBoard(), tile.ch, x, clampRow(row), id);
-    if (free !== null) Object.assign(tile, { x: free, row: clampRow(row), loose: false });
-  }
-
-  /** Put a letter back exactly where it was, `{ x, row, loose }`, as at the start of a drag. */
-  setPlace(id, { x, row, loose }) {
-    const tile = this.#tile(id);
-    if (tile) Object.assign(tile, { x, row, loose });
   }
 
   find(ch) {
@@ -51,30 +38,31 @@ export class Pool {
     return standIn ? { ch: standIn.ch, src: standIn.id, flip: true } : null;
   }
 
-  /** The piece for one particular tile, or null if it is already used. */
+  /** The piece for one particular letter, or null if it is on the board. */
   piece(id) {
     const tile = this.#tile(id);
     return tile && !tile.used ? { ch: tile.ch, src: id, flip: false } : null;
   }
 
   take(piece) {
-    this.#tile(piece.src).used = true;
+    Object.assign(this.#tile(piece.src), { used: true, table: null });
   }
 
-  /**
-   * The letter comes back to its board, where it was. If another letter has
-   * been moved there in the meantime, it goes to the nearest free place on its
-   * line, or on the table if the line is full.
-   */
-  putBack(src) {
+  /** The letter comes off the board. `from` is the tile it was there, `{ x, row, flip }`. */
+  putBack(src, from = null) {
     const tile = this.#tile(src);
     tile.used = false;
-    if (tile.loose || !blockerAt(this.#onBoard(), tile.ch, tile.x, tile.row, tile.id)) return;
-    const free = freeXNearest(this.#onBoard(), tile.ch, tile.x, tile.row, tile.id);
-    if (free === null) tile.loose = true;
-    else tile.x = free;
+    tile.table = null;
+    if (from) Object.assign(tile, { x: from.x, row: from.row, flip: Boolean(from.flip) });
   }
 
+  /** Lay a letter that is not on the board somewhere on the table. */
+  lay(id, place) {
+    const tile = this.#tile(id);
+    if (tile && !tile.used) tile.table = { x: place.x, y: place.y, flip: Boolean(place.flip) };
+  }
+
+  /** The letters on the table, or about to be. */
   get leftovers() {
     return this.tiles.filter((tile) => !tile.used);
   }
@@ -83,24 +71,14 @@ export class Pool {
     return this.tiles.find((tile) => tile.id === id);
   }
 
-  /** The letters that are to be seen on the board: not used, and not lying on the table. */
-  #onBoard() {
-    return this.tiles.filter((tile) => !tile.used && !tile.loose);
-  }
-
+  /** Letters are taken from the table in reading order of where they lie. */
   #firstUnused(ch) {
+    const at = (tile) => tile.table ?? { x: tile.x, y: tile.row * 20 };
     return this.tiles
       .filter((tile) => !tile.used && tile.ch === ch)
-      .sort((a, b) => a.row - b.row || a.x - b.x)[0];
+      .sort((a, b) => at(a).y - at(b).y || at(a).x - at(b).x)[0];
   }
 }
-
-/** A supply that never runs out, for writing a board from scratch. */
-export const ENDLESS = {
-  find: (ch) => ({ ch, src: null, flip: false }),
-  take() {},
-  putBack() {},
-};
 
 const CURSOR_STEP = 18;
 
@@ -122,15 +100,7 @@ export class Editor {
     return this.tiles.find((tile) => tile.id === id);
   }
 
-  /** Start from existing tiles that do not come from the supply. */
-  load(tiles) {
-    this.tiles = tiles.map((tile) => ({ ...tile, id: this.#newId(), src: null }));
-    this.cursor = typingSlot(this.tiles, "A", homeCursor()) ?? homeCursor();
-    this.#typed = [];
-    this.#onChange();
-  }
-
-  /** Put back pieces `[{ src, x, row, flip }]` taken from the supply earlier. Stale ones are skipped. */
+  /** Put back pieces `[{ src, x, row, flip }]` taken from the supply earlier. Stale ones, and ones not on the board, are skipped. */
   restore(items) {
     for (const { src, x, row, flip } of items) {
       const piece = this.#supply.piece?.(src);
@@ -153,30 +123,6 @@ export class Editor {
     const result = this.#placeAtCursor(piece, flip);
     if (result === "ok") this.#onChange();
     return result;
-  }
-
-  /** Put pieces at the cursor one after the other, the right way up. Stops when the board is full. */
-  placeAll(pieces) {
-    let result = "ok";
-    for (const piece of pieces) {
-      result = this.#placeAtCursor(piece, false);
-      if (result !== "ok") break;
-    }
-    this.#onChange();
-    return result;
-  }
-
-  /**
-   * Put pieces at the bottom of the board, the right way up, on as few lines as
-   * they fit on. The cursor stays where it is. Where there is no room at the
-   * bottom, they go at the cursor instead.
-   */
-  placeAtBottom(pieces) {
-    const slots = bottomRun(this.tiles, pieces.map((piece) => piece.ch));
-    if (!slots) return this.placeAll(pieces);
-    pieces.forEach((piece, i) => this.#add(piece, slots[i], false));
-    this.#onChange();
-    return "ok";
   }
 
   #placeAtCursor(piece, flip) {
@@ -291,7 +237,7 @@ export class Editor {
     const index = this.tiles.findIndex((tile) => tile.id === id);
     if (index < 0) return;
     const [tile] = this.tiles.splice(index, 1);
-    if (tile.src !== null) this.#supply.putBack(tile.src);
+    if (tile.src !== null) this.#supply.putBack(tile.src, tile);
   }
 
   #newId() {

@@ -1,124 +1,159 @@
-// The two big boards: the previous message, whose letters are the supply, and
-// the new message being written with them. Also the tray of letters under the
-// board, and the keyboard.
+// The board in play, and the table it stands on.
 //
-// The previous message can instead be rewritten freely ("rewrite"), which
-// starts a new chain of boards with whatever letters one likes.
+// The letters of the previous message start out on the board, as it was left.
+// From there they can be moved about on the board, taken off it onto the table
+// next to it (one by one, or all at once), shuffled or sorted there, and put
+// back up in a new order. The keyboard types with them too.
+//
+// Everything is placed in felt units (see js/board-view.js): the table is the
+// rest of the page around the board, measured from the corner of the felt. The
+// part of it where letters are laid out is the element `.table-zone`.
 
-import { messageText, putAside, rowAt } from "./board.js";
-import { BoardView, DOUBLE_TAP_MS } from "./board-view.js";
-import { MAX_TILES } from "./codec.js";
-import { ENDLESS, Editor, Pool } from "./editor.js";
-import { ALPHABET, GROOVE, glyphForKey, glyphText, glyphWidth } from "./glyphs.js";
+import { freeXNearest, messageText, putAside, rowAt } from "./board.js";
+import { DOUBLE_TAP_MS, element, onBoard, paintPiece, pieceElement, watchPresses } from "./board-view.js";
+import { Editor, Pool } from "./editor.js";
+import { BOARD_H, EDGE, FELT_W, GROOVE, glyphForKey, glyphText, glyphWidth, sortKey } from "./glyphs.js";
 
-/** How far outside the board (in board units) a dragged letter must be to be lifted off it. */
-const LEAVE_MARGIN = 10;
-
-const TRAY_ACTIONS = [
-  ["space", "Mellemrum"],
-  ["newline", "Ny linje"],
-  ["backspace", "Slet"],
-  ["flip", "Vend"],
-];
+/** How the letters are laid out on the table, in felt units from the corner of `.table-zone`. Taken from the design. */
+const SORTED = { left: 40, top: 96, topNarrow: 50, width: 572, gap: 17.5, line: 69 };
+const SCATTER = { x: 321, y: 442, rx: 251, ry: 341, count: 61, room: 62 };
+const MARGIN = 12; // how close to the edge of the page a letter may lie
 
 const plain = ({ ch, x, row, flip, loose }) => ({ ch, x, row, flip, loose });
 
 export class Workspace {
-  #sourceView;
-  #composeView;
-  #tray;
+  #stage;
+  #felt;
+  #layer;
+  #original;
+  #zoneNode;
   #onChange;
   #notify;
   #pool = new Pool([]);
   #composer = new Editor(this.#pool);
-  /** The editor on the previous message while it is being rewritten, otherwise null. */
-  #rewrite = null;
-  #flipNext = false;
+  #source = [];
+  #nodes = new Map();
+  #cursor = null;
+  #cursorShown = false;
+  #showingOriginal = false;
+  #drag = null;
+  #pendingTap = 0;
+  #seed = 1;
+  /** Whether anything has been done with the letters since they were put in play. */
+  #touched = false;
 
-  constructor({ sourceBoard, composeBoard, tray, onChange, notify }) {
+  constructor({ stage, felt, zone, onChange, notify }) {
+    this.#stage = stage;
+    this.#felt = felt;
+    this.#zoneNode = zone;
     this.#onChange = onChange;
     this.#notify = notify;
-    this.#tray = tray;
-
-    const editing = this.#editorGestures(() => this.#rewrite, () => this.#sourceView);
-    const picking = this.#pickingGestures();
-    const byMode = {};
-    for (const name of ["tap", "doubleTap", "boardTap", "canDrag", "drag", "drop", "cancel"]) {
-      byMode[name] = (...args) => (this.#rewrite ? editing : picking)[name]?.(...args);
-    }
-    this.#sourceView = new BoardView(sourceBoard, byMode);
-    const composing = this.#editorGestures(() => this.#composer, () => this.#composeView, { tapTakesBack: true });
-    this.#composeView = new BoardView(composeBoard, composing);
-
-    // Pressing a key in the tray must not take the keyboard focus away from typing.
-    tray.addEventListener("mousedown", (event) => event.preventDefault());
-    tray.addEventListener("click", (event) => this.#onTrayClick(event));
+    this.#original = element("div", "original");
+    this.#layer = element("div", "pieces");
+    felt.append(this.#original, this.#layer);
+    watchPresses(felt, this.#gestures());
   }
 
-  /** Start a new message from the letters in `tiles`. `draft` is an unfinished message to carry on with. */
-  setSource(tiles, draft = []) {
-    this.#rewrite = null;
+  /**
+   * Put the letters of `tiles` in play. `draft` is how they were left last
+   * time, as `draft` gave it. `seed` makes the leftovers lie the same way
+   * every time the same board is put in play.
+   */
+  setSource(tiles, draft = [], seed = 1) {
+    clearTimeout(this.#pendingTap);
+    this.#showingOriginal = false;
+    this.#cursorShown = false;
+    this.#drag = null;
+    this.#seed = seed;
+    this.#source = tiles.map(plain);
     this.#pool = new Pool(tiles);
     this.#composer = new Editor(this.#pool, () => this.#render());
-    this.#composer.restore(draft);
-    this.#buildTray();
-    this.#render();
-  }
-
-  get isRewriting() {
-    return this.#rewrite !== null;
+    if (draft.length > 0) {
+      this.#composer.restore(draft.filter((item) => Number.isFinite(item.x)));
+      for (const item of draft) {
+        if (Number.isFinite(item.tx) && Number.isFinite(item.ty)) this.#pool.lay(item.src, { x: item.tx, y: item.ty, flip: item.flip });
+      }
+    } else {
+      // As the board was left: its message on the board, its leftovers on the table.
+      this.#composer.restore(this.#pool.tiles.filter((tile) => !tile.loose).map((tile) => ({ ...tile, src: tile.id })));
+      this.#scatterOnTable(
+        this.#pool.tiles.filter((tile) => tile.loose && !tile.used),
+        seededRandom(seed),
+      );
+    }
+    this.#touched = false;
+    this.#render({ touched: false });
   }
 
   get isEmpty() {
-    return this.#editor.tiles.length === 0;
+    return this.#composer.tiles.length === 0;
   }
 
-  /** The unfinished message, in the form `setSource` takes it back. */
+  get showingOriginal() {
+    return this.#showingOriginal;
+  }
+
+  get isTouched() {
+    return this.#touched;
+  }
+
+  /** How things lie now, in the form `setSource` takes it back. */
   get draft() {
-    return this.#composer.tiles.map(({ src, x, row, flip }) => ({ src, x, row, flip }));
+    const board = this.#composer.tiles.map(({ src, x, row, flip }) => ({ src, x, row, flip }));
+    const table = this.#pool.leftovers
+      .filter((tile) => tile.table)
+      .map(({ id, table: at }) => ({ src: id, tx: at.x, ty: at.y, flip: at.flip }));
+    return [...board, ...table];
   }
 
-  startRewrite() {
-    this.#rewrite = new Editor(ENDLESS, () => this.#render());
-    this.#rewrite.load(this.#pool.tiles.map(plain));
-    this.#buildTray();
-    this.#render();
-  }
-
-  cancelRewrite() {
-    this.#rewrite = null;
-    this.#buildTray();
-    this.#render();
-  }
-
-  clear() {
-    this.#editor.clear();
-  }
-
-  /** Put every letter that is left at the bottom of the new board, in a random order. */
-  shuffle(random = Math.random) {
-    if (this.#rewrite) return;
-    const pieces = this.#pool.leftovers.map((tile) => this.#pool.piece(tile.id));
-    if (pieces.length === 0) {
-      this.#notify("Alle bogstaverne er allerede brugt");
+  /** Take every letter off the board, onto the table. */
+  removeAll() {
+    this.#endOriginal();
+    if (this.#composer.tiles.length === 0) {
+      this.#notify("Tavlen er allerede tom");
       return;
     }
-    for (let i = pieces.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(random() * (i + 1));
-      [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
-    }
-    if (this.#composer.placeAtBottom(pieces) === "full") this.#notify("Der var ikke plads til dem alle på tavlen");
+    this.#composer.clear();
+  }
+
+  /** Throw the letters on the table about in a heap. */
+  scatter(random = Math.random) {
+    const loose = this.#pool.leftovers;
+    if (loose.length === 0) return this.#notify("Der ligger ingen bogstaver på bordet");
+    this.#scatterOnTable(loose, random);
+    this.#render();
+  }
+
+  /** Lay the letters on the table out in rows, in the order of the alphabet. */
+  sortTable() {
+    const loose = this.#pool.leftovers;
+    if (loose.length === 0) return this.#notify("Der ligger ingen bogstaver på bordet");
+    const places = sortedPlaces(
+      loose.map((tile) => tile.ch),
+      this.#zone(),
+    );
+    loose.forEach((tile, i) => this.#pool.lay(tile.id, places[i]));
+    this.#render();
+  }
+
+  /** Show the previous message on the board instead of what is on it now, or go back. */
+  toggleOriginal(show = !this.#showingOriginal) {
+    this.#showingOriginal = show;
+    this.#render({ touched: false });
   }
 
   /**
    * The tiles of the finished board, or null if nothing is written. The letters
-   * that were not used in a new message are put aside, on the table next to the board.
+   * that were not used lie loose on the table next to the board.
    */
   result() {
     if (this.isEmpty) return null;
-    if (this.#rewrite) return this.#rewrite.tiles.map(plain);
-    const message = this.#composer.tiles.map(plain);
-    return [...message, ...putAside(this.#pool.leftovers)];
+    return [...this.#composer.tiles.map(plain), ...putAside(this.#pool.leftovers)];
+  }
+
+  /** Lay everything out again, after the page has changed size. */
+  relayout() {
+    this.#render({ touched: false });
   }
 
   /** Returns true if the key was meant for the board. */
@@ -126,51 +161,28 @@ export class Workspace {
     // AltGr, which types @ on many keyboards, is reported as Ctrl+Alt.
     if (event.metaKey || (event.ctrlKey && !event.altKey)) return false;
 
-    const editor = this.#editor;
-    switch (event.key) {
-      case "ArrowLeft":
-        editor.moveCursor(-1, 0);
-        return true;
-      case "ArrowRight":
-        editor.moveCursor(1, 0);
-        return true;
-      case "ArrowUp":
-        editor.moveCursor(0, -1);
-        return true;
-      case "ArrowDown":
-        editor.moveCursor(0, 1);
-        return true;
-      case "Backspace":
-        editor.backspace();
-        return true;
-      case "Enter":
-        editor.newLine();
-        return true;
-      case " ":
-        editor.space();
-        return true;
-    }
+    const editor = this.#composer;
+    const steps = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    const run = (action) => {
+      this.#endOriginal();
+      this.#cursorShown = true;
+      action();
+      this.#render();
+      return true;
+    };
+    if (steps[event.key]) return run(() => editor.moveCursor(...steps[event.key]));
+    if (event.key === "Backspace") return run(() => editor.backspace());
+    if (event.key === "Enter") return run(() => editor.newLine());
+    if (event.key === " ") return run(() => editor.space());
 
     const glyph = glyphForEvent(event);
     if (!glyph) return false;
-    this.#type(glyph.ch, glyph.flip);
-    return true;
-  }
-
-  get #editor() {
-    return this.#rewrite ?? this.#composer;
+    return run(() => this.#type(glyph.ch, glyph.flip));
   }
 
   #type(ch, flip) {
-    if (this.#rewrite && this.#rewrite.tiles.length >= MAX_TILES) {
-      this.#notify("Der er ikke plads til flere bogstaver på tavlen");
-      return;
-    }
-    const result = this.#editor.type(ch, flip !== this.#flipNext);
-    if (result === "missing") {
-      this.#notify(`Der er ikke flere ${glyphText(ch)} tilbage`);
-      this.#shakeKey(ch);
-    }
+    const result = this.#composer.type(ch, flip);
+    if (result === "missing") this.#notify(`Der er ikke flere ${glyphText(ch)} på bordet`);
     this.#reportFull(result);
   }
 
@@ -178,232 +190,312 @@ export class Workspace {
     if (result === "full") this.#notify("Der er ikke plads til flere bogstaver på tavlen");
   }
 
-  #render() {
-    const rewrite = this.#rewrite;
-    const sourceTiles = rewrite ? rewrite.tiles : this.#pool.tiles;
-    this.#sourceView.render(sourceTiles, {
-      cursor: rewrite?.cursor,
-      label: `Forrige besked: ${messageText(sourceTiles)}`,
-    });
-    this.#composeView.render(this.#composer.tiles, {
-      cursor: rewrite ? null : this.#composer.cursor,
-      label: `Ny besked: ${messageText(this.#composer.tiles)}`,
-    });
-    this.#composeView.root.classList.toggle("is-empty", this.#composer.tiles.length === 0);
-    this.#updateTray();
+  #endOriginal() {
+    if (this.#showingOriginal) this.toggleOriginal(false);
+  }
+
+  // --- The table -------------------------------------------------------------
+
+  /** The part of the table where letters are laid out, in felt units. */
+  #zone() {
+    const felt = this.#felt.getBoundingClientRect();
+    const scale = felt.width > 0 ? FELT_W / felt.width : 1;
+    const rect = this.#zoneNode.getBoundingClientRect();
+    const zone = {
+      x: (rect.left - felt.left) * scale,
+      y: (rect.top - felt.top) * scale,
+      w: rect.width * scale,
+      h: rect.height * scale,
+    };
+    // Beside the board (on a wide screen) or under it (on a narrow one).
+    zone.beside = zone.x >= FELT_W;
+    return zone;
+  }
+
+  /** The page around the board, as far as letters may lie, in felt units. */
+  #bounds() {
+    const felt = this.#felt.getBoundingClientRect();
+    const scale = felt.width > 0 ? FELT_W / felt.width : 1;
+    const page = this.#stage.getBoundingClientRect();
+    return {
+      left: (page.left - felt.left) * scale + MARGIN,
+      top: (page.top - felt.top) * scale + MARGIN,
+      right: (page.right - felt.left) * scale - MARGIN,
+      bottom: (page.bottom - felt.top) * scale - MARGIN,
+    };
+  }
+
+  #scatterOnTable(tiles, random) {
+    const places = scatteredPlaces(
+      tiles.map((tile) => tile.ch),
+      this.#zone(),
+      random,
+    );
+    tiles.forEach((tile, i) => this.#pool.lay(tile.id, places[i]));
+  }
+
+  /**
+   * Letters that have just come off the board go on the table where they were
+   * on the board, moved over beside it (or under it), as if the board had been
+   * tipped out there.
+   */
+  #layStrays() {
+    const strays = this.#pool.leftovers.filter((tile) => !tile.table);
+    if (strays.length === 0) return;
+    const zone = this.#zone();
+    const fit = Math.min(1, zone.w / FELT_W, zone.h / BOARD_H);
+    const random = seededRandom(this.#seed + strays.length);
+    const jitter = () => (random() - 0.5) * 8;
+    for (const tile of strays) {
+      const at = onBoard(tile);
+      this.#pool.lay(tile.id, { x: zone.x + at.x * fit + jitter(), y: zone.y + at.y * fit + jitter(), flip: tile.flip });
+    }
+  }
+
+  // --- Drawing ---------------------------------------------------------------
+
+  /**
+   * Every piece there is now: `{ key, tile, ch, flip, place, kind }`, kind
+   * "board" or "table". A letter keeps its key wherever it goes.
+   */
+  #pieces() {
+    const pieces = this.#composer.tiles.map((tile) => ({ key: tile.src, tile, ch: tile.ch, flip: tile.flip, place: onBoard(tile), kind: "board" }));
+    for (const tile of this.#pool.leftovers) {
+      if (tile.table) pieces.push({ key: tile.id, tile, ch: tile.ch, flip: tile.table.flip, place: tile.table, kind: "table" });
+    }
+    return pieces;
+  }
+
+  #find(key) {
+    return this.#pieces().find((piece) => piece.key === key) ?? null;
+  }
+
+  #render({ touched = true } = {}) {
+    if (touched) this.#touched = true;
+    this.#layStrays();
+    const bounds = this.#bounds();
+    const seen = new Set();
+    for (const piece of this.#pieces()) {
+      seen.add(piece.key);
+      let node = this.#nodes.get(piece.key);
+      if (!node) {
+        node = pieceElement(piece.key);
+        this.#nodes.set(piece.key, node);
+        this.#layer.append(node);
+      }
+      let place = piece.place;
+      if (piece.kind !== "board") {
+        // Keep it on the page, whatever size the page is now.
+        const w = glyphWidth(piece.ch);
+        place = { x: clamp(place.x, bounds.left, bounds.right - w), y: clamp(place.y, bounds.top + 30, bounds.bottom - 30) };
+      }
+      const dragged = this.#drag?.key === piece.key;
+      if (dragged && this.#drag.shown) place = this.#drag.shown;
+      paintPiece(node, piece.ch, piece.flip, place);
+      node.classList.toggle("on-board", piece.kind === "board");
+      node.classList.toggle("on-table", piece.kind === "table");
+      node.classList.toggle("is-lifted", dragged);
+    }
+    for (const [key, node] of this.#nodes) {
+      if (seen.has(key)) continue;
+      node.remove();
+      this.#nodes.delete(key);
+    }
+
+    this.#stage.classList.toggle("is-showing-original", this.#showingOriginal);
+    this.#original.replaceChildren(
+      ...(this.#showingOriginal ? this.#source.filter((tile) => !tile.loose) : []).map((tile) => {
+        const node = pieceElement();
+        paintPiece(node, tile.ch, tile.flip, onBoard(tile));
+        return node;
+      }),
+    );
+
+    this.#drawCursor();
+    this.#felt.setAttribute("aria-label", `Tavlen: ${messageText(this.#composer.tiles) || "tom"}`);
     this.#onChange();
   }
 
-  // --- Pointer -------------------------------------------------------------
+  #drawCursor() {
+    const show = this.#cursorShown && !this.#showingOriginal;
+    if (show && !this.#cursor) {
+      this.#cursor = element("div", "cursor");
+      this.#layer.before(this.#cursor);
+    } else if (!show && this.#cursor) {
+      this.#cursor.remove();
+      this.#cursor = null;
+    }
+    if (show) {
+      const { x, row } = this.#composer.cursor;
+      this.#cursor.style.setProperty("--x", EDGE + x);
+      this.#cursor.style.setProperty("--y", row * GROOVE);
+    }
+  }
 
-  /**
-   * A board that is being written on: letters can be moved, turned and taken off.
-   * Dragged off the board, a letter leaves its groove and follows the pointer,
-   * across the page if need be; let go there, it goes back where it came from.
-   * With `tapTakesBack`, a tap on a letter does that too, and the cursor is moved
-   * by tapping the board between the letters.
-   */
-  #editorGestures(getEditor, getView, { tapTakesBack = false } = {}) {
-    let from = null; // where the letter was when the drag began, in board units
-    let carried = false; // off the board, following the pointer
-    let pendingTap = 0;
-    const release = (id) => {
-      getView().lift(id, 0, 0);
-      from = null;
-      carried = false;
-    };
+  // --- Pointer ---------------------------------------------------------------
+
+  /** A pointer position in felt units, and whether it is over the felt. */
+  #pointAt({ clientX, clientY }) {
+    const rect = this.#felt.getBoundingClientRect();
+    const scale = FELT_W / rect.width;
+    const inside = clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+    return { x: (clientX - rect.left) * scale, y: (clientY - rect.top) * scale, inside };
+  }
+
+  #gestures() {
+    const editor = () => this.#composer;
     return {
-      tap: (id) => {
-        const editor = getEditor();
-        if (!tapTakesBack) return editor.cursorAfter(id);
-        // Wait a moment: a second tap turns the letter instead.
-        clearTimeout(pendingTap);
-        pendingTap = setTimeout(() => editor.tile(id) && editor.remove(id), DOUBLE_TAP_MS);
+      canDrag: (key) => !(this.#showingOriginal && this.#find(key)?.kind === "board"),
+      tap: (key) => {
+        const piece = this.#find(key);
+        if (!piece || (piece.kind === "board" && this.#showingOriginal)) return;
+        // Wait a moment: a second tap turns the letter instead. Then a letter
+        // on the board goes onto the table, and one on the table up at the cursor.
+        clearTimeout(this.#pendingTap);
+        this.#pendingTap = setTimeout(() => {
+          const now = this.#find(key);
+          if (!now || now.kind !== piece.kind) return;
+          if (now.kind === "board") editor().remove(now.tile.id);
+          else this.#reportFull(this.#composer.place(this.#pool.piece(key), now.flip));
+        }, DOUBLE_TAP_MS);
       },
-      doubleTap: (id) => {
-        clearTimeout(pendingTap);
-        getEditor().flip(id);
+      doubleTap: (key) => {
+        clearTimeout(this.#pendingTap);
+        const piece = this.#find(key);
+        if (!piece || (piece.kind === "board" && this.#showingOriginal)) return;
+        if (piece.kind === "board") editor().flip(piece.tile.id);
+        if (piece.kind === "table") {
+          this.#pool.lay(key, { ...piece.tile.table, flip: !piece.flip });
+          this.#render();
+        }
       },
       boardTap: (event) => {
-        const point = getView().pointAt(event);
-        getEditor().setCursor(point.x, rowAt(point.y));
+        if (this.#showingOriginal) return;
+        const point = this.#pointAt(event);
+        this.#cursorShown = true;
+        editor().setCursor(point.x - EDGE, rowAt(point.y));
       },
-      drag: (id, event, dx, dy) => {
-        const editor = getEditor();
-        const tile = editor.tile(id);
-        if (!tile) return;
-        const view = getView();
-        const point = view.pointAt(event);
-        from ??= { x: tile.x, row: tile.row, loose: tile.loose };
-        const wasCarried = carried;
-        carried = point.outside > LEAVE_MARGIN;
-        if (carried) {
-          // Back to where the drag began, and from there it moves with the pointer.
-          if (!wasCarried && !from.loose) editor.moveTo(id, from.x, from.row);
-          view.lift(id, dx, dy);
-          return;
+      drag: (key, event, start) => {
+        // Moving a letter about changes nothing until it is let go.
+        const piece = this.#find(key);
+        if (!piece) return;
+        if (this.#drag?.key !== key) {
+          // Hold the letter where it was taken hold of.
+          const grab = this.#pointAt(start);
+          this.#drag = { key, grab: { x: grab.x - piece.place.x, y: grab.y - piece.place.y } };
         }
-        if (wasCarried) view.lift(id, 0, 0);
-        if (from.loose) {
-          // A letter picked up from the table goes on the board under the pointer.
-          editor.moveTo(id, point.x - glyphWidth(tile.ch) / 2, rowAt(point.y));
-          return;
-        }
-        const scale = view.unitsPerPixel;
-        editor.moveTo(id, from.x + dx * scale, rowAt(from.row * GROOVE + dy * scale));
-      },
-      drop: (id) => {
-        // Let go off the board, a letter from the board goes back; one from the table stays there.
-        const takeOff = carried && !from?.loose;
-        release(id);
-        if (takeOff) getEditor().remove(id);
-      },
-      cancel: release,
-    };
-  }
-
-  /**
-   * The previous message while its letters are being picked for the new one.
-   * A letter can be moved about on this board, like on the new one. Dragged off
-   * the board, it follows the pointer: let go over the new board, it is used
-   * there; let go anywhere else, it goes back to where it was.
-   */
-  #pickingGestures() {
-    let from = null; // where the letter was when the drag began
-    let carried = false; // off the board, following the pointer
-    const pool = () => this.#pool;
-    const view = () => this.#sourceView;
-    const release = (id) => {
-      view().lift(id, 0, 0);
-      from = null;
-      carried = false;
-    };
-    return {
-      // Tap a letter to use it at the cursor; tap a used letter to take it back.
-      tap: (id) => {
-        const piece = pool().piece(id);
-        if (piece) this.#reportFull(this.#composer.place(piece, this.#flipNext));
-        else this.#composer.removeBySource(id);
-      },
-      canDrag: (id) => pool().piece(id) !== null,
-      drag: (id, event, dx, dy) => {
-        const tile = pool().tile(id);
-        if (!tile || tile.used) return;
-        const point = view().pointAt(event);
-        from ??= { x: tile.x, row: tile.row, loose: tile.loose };
-        const wasCarried = carried;
-        carried = point.outside > LEAVE_MARGIN;
-        if (carried) {
-          // Back to where the drag began, and from there it moves with the pointer.
-          if (!wasCarried) {
-            pool().setPlace(id, from);
-            this.#render();
+        const point = this.#pointAt(event);
+        const free = { x: point.x - this.#drag.grab.x, y: point.y - this.#drag.grab.y };
+        this.#drag.target = { onBoard: false, ...free };
+        this.#drag.shown = free;
+        if (point.inside && !this.#showingOriginal) {
+          // Over the board, it drops into the groove it would go in.
+          const row = rowAt(free.y);
+          const others = editor().tiles.filter((tile) => tile !== piece.tile);
+          const x = freeXNearest(others, piece.ch, free.x - EDGE, row);
+          if (x !== null) {
+            this.#drag.target = { onBoard: true, x, row };
+            this.#drag.shown = onBoard({ x, row });
           }
-          view().lift(id, dx, dy);
+        }
+        this.#render({ touched: false });
+      },
+      drop: (key) => {
+        const drag = this.#drag;
+        this.#drag = null;
+        const piece = this.#find(key);
+        if (!drag?.target || !piece) {
+          this.#render({ touched: false });
           return;
         }
-        if (wasCarried) view().lift(id, 0, 0);
-        if (from.loose) {
-          // A letter picked up from the table goes on the board under the pointer.
-          pool().moveTo(id, point.x - glyphWidth(tile.ch) / 2, rowAt(point.y));
+        this.#endOriginal();
+        const { target } = drag;
+        const node = this.#nodes.get(key);
+        // What was moved last lies on top.
+        node?.parentNode?.append(node);
+        if (piece.kind === "board") {
+          if (target.onBoard) {
+            editor().moveTo(piece.tile.id, target.x, target.row);
+          } else {
+            // Off the board: onto the table, where it was let go.
+            editor().remove(piece.tile.id);
+            this.#pool.lay(piece.tile.src, { x: target.x, y: target.y, flip: piece.flip });
+          }
+          this.#render();
+        } else if (target.onBoard) {
+          this.#reportFull(this.#composer.drop(this.#pool.piece(key), target.x, target.row, piece.flip));
+          this.#render();
         } else {
-          const scale = view().unitsPerPixel;
-          pool().moveTo(id, from.x + dx * scale, rowAt(from.row * GROOVE + dy * scale));
+          this.#pool.lay(key, { x: target.x, y: target.y, flip: piece.flip });
+          this.#render();
         }
-        this.#render();
       },
-      drop: (id, event) => {
-        const wasCarried = carried;
-        release(id);
-        // Let go on this board, it stays where it was put.
-        if (!wasCarried) return;
-        const piece = pool().piece(id);
-        const point = this.#composeView.pointAt(event);
-        if (!piece || point.outside > 0) return;
-        this.#reportFull(this.#composer.drop(piece, point.x - glyphWidth(piece.ch) / 2, rowAt(point.y), this.#flipNext));
-      },
-      cancel: (id) => {
-        if (from) pool().setPlace(id, from);
-        release(id);
-        this.#render();
+      cancel: () => {
+        this.#drag = null;
+        this.#render({ touched: false });
       },
     };
   }
+}
 
-  // --- Tray ----------------------------------------------------------------
-
-  /** One key per letter in the supply, plus the keys a touch screen has no other way to press. */
-  #buildTray() {
-    const letters = this.#rewrite ? [...ALPHABET] : [...ALPHABET].filter((ch) => this.#pool.tiles.some((tile) => tile.ch === ch));
-
-    const letterRow = document.createElement("div");
-    letterRow.className = "tray-letters";
-    for (const ch of letters) {
-      const key = trayKey(glyphText(ch));
-      key.dataset.ch = ch;
-      if (!this.#rewrite) key.append(Object.assign(document.createElement("span"), { className: "key-count" }));
-      letterRow.append(key);
+/** Where letters `chars` go when laid out in rows by "sorter a-z", in the order they are given in. */
+export function sortedPlaces(chars, zone) {
+  const order = chars.map((_, i) => i).sort((a, b) => sortKey(chars[a]) - sortKey(chars[b]) || a - b);
+  const left = zone.x + SORTED.left;
+  const width = Math.max(200, Math.min(SORTED.width, zone.w - 2 * SORTED.left));
+  let x = left;
+  let y = zone.y + (zone.beside ? SORTED.top : SORTED.topNarrow);
+  const places = [];
+  for (const i of order) {
+    const w = glyphWidth(chars[i]);
+    if (x > left && x + w > left + width) {
+      x = left;
+      y += SORTED.line;
     }
-
-    const actionRow = document.createElement("div");
-    actionRow.className = "tray-actions";
-    for (const [action, label] of TRAY_ACTIONS) {
-      const key = trayKey(label);
-      key.dataset.action = action;
-      actionRow.append(key);
-    }
-
-    this.#tray.replaceChildren(letterRow, actionRow);
-    (this.#rewrite ? this.#sourceView : this.#composeView).root.after(this.#tray);
+    places[i] = { x, y, flip: false };
+    x += w + SORTED.gap;
   }
+  return places;
+}
 
-  #updateTray() {
-    if (!this.#rewrite) {
-      const left = new Map();
-      for (const { ch } of this.#pool.leftovers) left.set(ch, (left.get(ch) ?? 0) + 1);
-      for (const key of this.#tray.querySelectorAll("[data-ch]")) {
-        const count = left.get(key.dataset.ch) ?? 0;
-        key.lastChild.textContent = count;
-        key.classList.toggle("is-out", count === 0);
-        key.setAttribute("aria-label", `${key.dataset.ch === "<" ? "pil" : key.dataset.ch}, ${count} tilbage`);
+/** Where letters `chars` go when thrown about in a heap: the right way up, and not on top of each other. */
+export function scatteredPlaces(chars, zone, random = Math.random) {
+  const spread = Math.sqrt(Math.max(chars.length, 1) / SCATTER.count);
+  const rx = Math.max(60, Math.min(SCATTER.rx * spread, zone.w / 2 - 40));
+  const ry = Math.max(60, Math.min(SCATTER.ry * spread, zone.h / 2 - 50));
+  const cx = zone.x + (zone.beside ? Math.min(SCATTER.x, zone.w / 2) : zone.w / 2);
+  const cy = zone.y + (zone.beside ? Math.min(SCATTER.y, zone.h / 2) : zone.h / 2);
+  const middles = [];
+  return chars.map((ch) => {
+    let best = null;
+    let bestRoom = -1;
+    for (let attempt = 0; attempt < 40 && bestRoom < SCATTER.room; attempt += 1) {
+      const angle = random() * 2 * Math.PI;
+      const reach = Math.sqrt(random());
+      const at = { x: cx + Math.cos(angle) * reach * rx, y: cy + Math.sin(angle) * reach * ry };
+      const room = Math.min(Infinity, ...middles.map((m) => Math.hypot(m.x - at.x, m.y - at.y)));
+      if (room > bestRoom) {
+        best = at;
+        bestRoom = room;
       }
     }
-    this.#tray.querySelector('[data-action="flip"]')?.setAttribute("aria-pressed", String(this.#flipNext));
-  }
-
-  #onTrayClick(event) {
-    const key = event.target.closest("button");
-    if (!key) return;
-    if (key.dataset.ch) return this.#type(key.dataset.ch, false);
-    switch (key.dataset.action) {
-      case "space":
-        return this.#editor.space();
-      case "newline":
-        return this.#editor.newLine();
-      case "backspace":
-        return this.#editor.backspace();
-      case "flip":
-        this.#flipNext = !this.#flipNext;
-        return this.#updateTray();
-    }
-  }
-
-  #shakeKey(ch) {
-    const key = this.#tray.querySelector(`[data-ch="${CSS.escape(ch)}"]`);
-    if (!key) return;
-    key.classList.remove("is-shaking");
-    void key.offsetWidth; // restart the animation if it is already running
-    key.classList.add("is-shaking");
-  }
+    middles.push(best);
+    return { x: best.x - glyphWidth(ch) / 2, y: best.y, flip: false };
+  });
 }
 
-function trayKey(text) {
-  const key = document.createElement("button");
-  key.type = "button";
-  key.className = "key";
-  key.append(Object.assign(document.createElement("span"), { className: "key-label", textContent: text }));
-  return key;
+/** A deterministic stand-in for Math.random, so a board's leftovers lie the same way every time. */
+export function seededRandom(seed) {
+  let state = seed | 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
 
 /** The letter a key press asks for. Shift turns a letter or a digit upside down. */
 function glyphForEvent(event) {

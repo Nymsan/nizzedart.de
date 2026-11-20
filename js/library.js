@@ -4,31 +4,47 @@
 // A board is `{ id, code, tiles, author, createdAt, parentId }` as decoded from
 // its share code. Saved boards are stored as their codes.
 
-import { layoutText, messageText } from "./board.js";
+import { messageText } from "./board.js";
 import { decodeBoard, encodeBoard } from "./codec.js";
 import { STORAGE_KEY } from "./config.js";
 import { importLegacyBoards } from "./legacy.js";
 
 const MAX_SAVED = 200;
 
-/** The message everything started from. */
-export const ORIGINAL = Object.freeze({
-  ...decodeBoard(
+/**
+ * Marianne's board, as the design has it (design_v2.pdf), line by line: the
+ * row, and each letter with how far across it is, and whether it is upside down.
+ */
+const MARIANNE = [
+  [3, [["L", 20], ["E", 56], ["B", 89], ["B", 130], ["E", 172], ["S", 234], ["A", 273], ["L", 316], ["L", 354], ["E", 387]]],
+  [8, [["F", 54], ["I", 87], ["N", 108], ["D", 149], ["E", 189], ["R", 222], ["9", 295]]],
+  [12, [["B", 69], ["A", 110], ["S", 153], ["U", 196], ["N", 237], ["E", 277], ["R", 316], ["H", 430], ["O", 472], ["S", 519]]],
+  [
+    16,
+    [
+      ["W", 7], ["M", 61, true], ["M", 110, true], [",", 157], ["N", 181], ["I", 217], ["Z", 234], ["Z", 273],
+      ["E", 309], ["D", 342], ["A", 375], ["R", 414], ["T", 449], [",", 482], ["D", 504], ["E", 545],
+    ],
+  ],
+  [21, [["T", 67], ["I", 104], ["L", 125], ["9", 204], ["9", 243], ["6", 284], ["K", 357], ["R", 397], ["_", 436]]],
+  [34, [["-", 400], [",", 427], ["-", 447]]],
+  [38, [["*", 421]]],
+  [42, [[">", 27], ["D", 99], ["J", 138], ["C", 198], [">", 247, true]]],
+];
+
+/** The board everything starts from. */
+export const ORIGINAL = Object.freeze(
+  decodeBoard(
     encodeBoard({
-      tiles: layoutText([
-        { row: 2, text: "LEBBE SALLE" },
-        { row: 7, text: "SIGER NEJ TIL" },
-        { row: 12, text: "EL I MARTS" },
-        { row: 20, text: "DR ANDREAZZ*" },
-        { row: 23, text: "DEN ED <" },
-        { row: 26, text: "699     @ <" },
-      ]),
-      author: "LEBBE SALLE",
+      tiles: MARIANNE.flatMap(([row, letters]) => letters.map(([ch, x, flip = false]) => ({ ch, x, row, flip, loose: false }))),
+      author: "Marianne",
       createdAt: 0,
     }),
   ),
-  title: "LEBBE SALLE SIGER NEJ TIL EL I MARTS",
-});
+);
+
+/** The unfinished message is kept in this form; older forms are let go. */
+const DRAFT_VERSION = 2;
 
 export class Library {
   /** Boards saved ("mine") or opened from a link ("link") in this browser, newest first. */
@@ -98,6 +114,7 @@ export class Library {
       boards: this.saved.map(({ code, origin, title }) => ({ code, origin, title })),
       source: this.source.code,
       draft: this.draft,
+      draftVersion: DRAFT_VERSION,
       author: this.author,
     };
     try {
@@ -135,7 +152,8 @@ export class Library {
     try {
       const source = decodeBoard(state.source);
       this.source = this.find(source.id) ?? source;
-      this.draft = Array.isArray(state.draft) ? state.draft.filter((item) => item && typeof item === "object") : [];
+      const draft = state.draftVersion === DRAFT_VERSION && Array.isArray(state.draft) ? state.draft : [];
+      this.draft = draft.filter((item) => item && typeof item === "object");
     } catch {
       // No usable source: start from the original.
     }

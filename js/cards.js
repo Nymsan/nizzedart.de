@@ -1,4 +1,4 @@
-// The lists of boards under the workspace: one card per board.
+// The lists of boards in the menu: one card per board.
 
 import { BoardView } from "./board-view.js";
 import { formatDate, h } from "./ui.js";
@@ -32,12 +32,12 @@ function card(board, { library, activeId, onUse, onShare, onForget }) {
     h("p", { className: "card-meta", textContent: facts.join(" · ") }),
     h("p", { className: "card-meta", textContent: lineage(board, library) }),
   );
-  if (isActive) text.prepend(h("span", { className: "card-badge", textContent: "På tavlen nu" }));
+  if (isActive) text.prepend(h("span", { className: "card-badge", textContent: "på tavlen nu" }));
 
-  const button = (label, run, primary = false) =>
-    h("button", { type: "button", className: `btn btn-small${primary ? " btn-primary" : ""}`, textContent: label, onclick: () => run(board) });
-  const actions = h("div", { className: "card-actions" }, button("Byg videre", onUse, !isActive), button("Del", onShare));
-  if (onForget) actions.append(button("Slet", onForget));
+  const button = (label, run, solid = false) =>
+    h("button", { type: "button", className: `pill pill-text${solid ? " pill-solid" : ""}`, textContent: label, onclick: () => run(board) });
+  const actions = h("div", { className: "card-actions" }, button("byg videre", onUse, !isActive), button("del", onShare));
+  if (onForget) actions.append(button("slet", onForget));
 
   const node = h("article", { className: "card" }, preview, text, actions);
   node.classList.toggle("is-active", isActive);

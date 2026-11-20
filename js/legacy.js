@@ -59,8 +59,9 @@ function convertTiles(snapshot) {
     .flatMap(({ token, x, y, rotation }) => {
       let ch = token;
       let flip = rotation === 180;
-      if (ch === ">") {
-        ch = "<";
+      // The arrow is one piece, ">" the right way up.
+      if (ch === "<") {
+        ch = ">";
         flip = !flip;
       }
       if (typeof ch !== "string" || ch.length !== 1 || !ALPHABET.includes(ch)) return [];

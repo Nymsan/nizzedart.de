@@ -1,109 +1,112 @@
-// Draws a board into the page and reports what the pointer does to its letters.
-// Letters on the board hang in its grooves; loose letters lie on the table in
-// front of it, outside the frame.
+// Drawing boards and their letters.
 //
-// The view knows nothing about the rules of the board: it renders the tiles it
-// is given and turns presses into taps, double taps and drags. All sizes are
-// set in board units through CSS variables, so the same markup works for the
-// big boards and for the small previews.
+// A letter is a "piece": an element placed in felt units (see .felt in
+// styles.css), with its left edge at --x and its middle at --y. The same
+// pieces are used for the big board in play (js/workspace.js) and for the
+// small pictures of boards in the menu and the dialogs, drawn here by
+// BoardView. All sizes are set in board units through CSS variables, so the
+// same markup works at every size.
 
-import { BOARD_H, BOARD_W, glyphText, glyphWidth } from "./glyphs.js";
+import { EDGE, FELT_W, GROOVE, glyphPlacement, glyphText, glyphWidth } from "./glyphs.js";
 
-/** The strip of felt on either side of a board that letters are not put on (see .board-field). */
-const EDGE = 20;
+/** The table under a small picture of a board, in board units: margins, space between letters and rows, and how high a row arches. */
+const TABLE = { side: 28, gap: 14, top: 50, line: 70, rise: 18 };
 
-/** The table, in board units: margins, space between letters and rows, and how high a row arches. */
-const TABLE = { side: 28, gap: 12, top: 44, line: 62, rise: 16 };
+/**
+ * The arrow piece, as drawn in the design (27 by 14 pixels there): it points
+ * right, and left when turned upside down.
+ */
+const ARROW = {
+  viewBox: "0 0 26.97 13.97",
+  path:
+    "M26.84 7.69C26.84 7.69 26.86 7.5 26.89 7.42C26.89 7.31 26.97 7.23 26.97 7.09C26.97 7.09 26.97 7.07 26.97 7.04C26.97 7.04" +
+    " 26.97 7.01 26.97 6.99L26.97 6.96L26.97 6.93C26.97 6.8 26.92 6.69 26.89 6.58C26.89 6.5 26.89 6.42 26.84 6.34C26.84 6.34 " +
+    "26.84 6.31 26.84 6.28C26.76 6.07 26.63 5.9 26.47 5.74C26.47 5.74 26.41 5.66 26.39 5.63L21.01 0.49C20.64 0.14 20.19 0 19." +
+    "66 0C19.13 0 18.7 0.22 18.36 0.6C17.99 1 17.83 1.46 17.86 1.98C17.86 2.49 18.09 2.95 18.46 3.3L20.35 5.09L1.85 5.09C1.32" +
+    " 5.09 0.87 5.28 0.53 5.63C0.16 6.01 0 6.44 0 6.96C0 7.47 0.18 7.96 0.53 8.31C0.9 8.69 1.32 8.85 1.85 8.85L20.35 8.85L18." +
+    "44 10.64C18.07 10.99 17.88 11.43 17.86 11.97C17.86 12.51 18.01 12.94 18.36 13.32C18.7 13.7 19.13 13.92 19.66 13.95C20.19" +
+    " 13.97 20.61 13.81 20.98 13.46L26.36 8.37C26.36 8.37 26.39 8.31 26.41 8.31C26.41 8.31 26.41 8.29 26.44 8.26C26.44 8.26 2" +
+    "6.47 8.21 26.49 8.18C26.6 8.04 26.71 7.91 26.78 7.74C26.78 7.74 26.78 7.69 26.81 7.66L26.84 7.69Z",
+};
 
-const TAP_SLOP = 5; // pixels a press may wander and still count as a tap
-export const DOUBLE_TAP_MS = 350;
+/** Where a tile on the board lies, in felt units. */
+export const onBoard = (tile) => ({ x: EDGE + tile.x, y: tile.row * GROOVE });
 
+export function element(tag, className) {
+  const node = document.createElement(tag);
+  node.className = className;
+  return node;
+}
+
+export function pieceElement(id) {
+  const node = element("div", "piece");
+  if (id !== undefined) node.dataset.id = id;
+  node.append(element("span", "glyph"));
+  return node;
+}
+
+/** Show letter `ch` on a piece, turned upside down if `flip`, at `place` (felt units). */
+export function paintPiece(node, ch, flip, place) {
+  if (node.dataset.ch !== ch) {
+    node.dataset.ch = ch;
+    const glyph = node.firstChild;
+    if (ch === ">") {
+      glyph.innerHTML = `<svg viewBox="${ARROW.viewBox}" aria-hidden="true"><path d="${ARROW.path}"/></svg>`;
+    } else {
+      glyph.textContent = glyphText(ch);
+    }
+    const [dx, dy] = glyphPlacement(ch);
+    node.style.setProperty("--w", glyphWidth(ch));
+    glyph.style.setProperty("--dx", dx);
+    glyph.style.setProperty("--dy", dy);
+  }
+  node.style.setProperty("--x", place.x);
+  node.style.setProperty("--y", place.y);
+  node.style.setProperty("--turn", flip ? "180deg" : "0deg");
+}
+
+/** A board in a frame, as a picture. Its loose letters lie on the table under it. */
 export class BoardView {
-  #field;
+  #felt;
   #table;
-  #nodes = new Map();
-  #cursor = null;
-  #width;
 
-  /**
-   * @param {HTMLElement} root
-   * @param {object} [gestures] Callbacks `tap(id)`, `doubleTap(id)`, `boardTap(event)`,
-   *   `canDrag(id, event)`, `drag(id, event, dx, dy)`, `drop(id, event)` and `cancel(id)`.
-   *   Without them the board is a static picture.
-   * @param {object} [frame] `width` and `height` in board units, to show just the top left of a board.
-   */
-  constructor(root, gestures = null, { width = BOARD_W, height = BOARD_H } = {}) {
+  /** @param {HTMLElement} root */
+  constructor(root) {
     this.root = root;
-    this.#width = width;
     root.classList.add("board-view");
-    if (width !== BOARD_W || height !== BOARD_H) {
-      root.style.setProperty("--frame-w", width);
-      root.style.setProperty("--face-ratio", `${width + 2 * EDGE} / ${height}`);
-    }
-    const frame = element("div", "board");
-    const face = element("div", "board-face");
-    this.#field = element("div", "board-field");
+    const frame = element("div", "frame");
+    this.#felt = element("div", "felt");
     this.#table = element("div", "board-table");
-    face.append(this.#field);
-    frame.append(face);
+    frame.append(this.#felt);
     root.replaceChildren(frame, this.#table);
-    if (gestures) {
-      watchGestures(this.#field, gestures);
-      watchGestures(this.#table, gestures);
-    }
   }
 
-  /** Tiles are matched to their elements by `id`, so a letter keeps its element while it moves. */
-  render(tiles, { cursor = null, label = null } = {}) {
-    const seen = new Set();
+  render(tiles, { label = null } = {}) {
     const onTable = [];
-    tiles.forEach((tile, index) => {
-      const id = String(tile.id ?? index);
-      seen.add(id);
-      let node = this.#nodes.get(id);
-      if (!node) {
-        node = element("div", "tile");
-        node.dataset.id = id;
-        node.append(element("span", "glyph"));
-        this.#nodes.set(id, node);
+    const pieces = [];
+    for (const tile of tiles) {
+      const node = pieceElement();
+      if (tile.loose) {
+        onTable.push({ node, tile });
+      } else {
+        paintPiece(node, tile.ch, tile.flip, onBoard(tile));
+        pieces.push(node);
       }
-      const place = tile.loose ? this.#table : this.#field;
-      if (node.parentNode !== place) place.append(node);
-      paintTile(node, tile);
-      if (tile.loose) onTable.push({ node, tile });
-    });
+    }
+    this.#felt.replaceChildren(...pieces);
+    this.#table.replaceChildren(...onTable.map(({ node }) => node));
     this.#table.hidden = onTable.length === 0;
     if (onTable.length > 0) this.#layOutTable(onTable);
-    for (const [id, node] of this.#nodes) {
-      if (seen.has(id)) continue;
-      node.remove();
-      this.#nodes.delete(id);
-    }
-
-    if (cursor && !this.#cursor) {
-      this.#cursor = element("div", "cursor");
-      this.#field.append(this.#cursor);
-    } else if (!cursor && this.#cursor) {
-      this.#cursor.remove();
-      this.#cursor = null;
-    }
-    if (cursor) {
-      this.#cursor.style.setProperty("--x", Math.min(cursor.x, this.#width - 4));
-      this.#cursor.style.setProperty("--row", cursor.row);
-    }
-
     if (label !== null) {
       this.root.setAttribute("role", "img");
       this.root.setAttribute("aria-label", label);
     }
   }
 
-  /**
-   * Loose letters lie on the table in rows that each curve in a gentle arch,
-   * every letter the right way up and turned to follow the curve.
-   */
+  /** Loose letters lie on the table in rows that each curve in a gentle arch, the right way up. */
   #layOutTable(items) {
-    const room = this.#width + 2 * EDGE - 2 * TABLE.side;
+    const across = FELT_W;
+    const room = across - 2 * TABLE.side;
     const rows = [[]];
     let used = 0;
     for (const item of items) {
@@ -115,101 +118,64 @@ export class BoardView {
       rows.at(-1).push({ ...item, width });
       used += width + TABLE.gap;
     }
-
     rows.forEach((row, index) => {
       const length = row.reduce((sum, { width }) => sum + width, 0) + TABLE.gap * (row.length - 1);
       const rise = TABLE.rise * Math.min(1, length / room); // short rows curve less
-      let x = (this.#width + 2 * EDGE - length) / 2;
-      for (const { node, width } of row) {
-        const t = length > 0 ? (x + width / 2 - (this.#width + 2 * EDGE - length) / 2) / length : 0.5;
-        const y = TABLE.top + index * TABLE.line - 4 * rise * t * (1 - t);
-        const slope = (-4 * rise * (1 - 2 * t)) / length;
-        node.style.setProperty("--x", x);
-        node.style.setProperty("--y", y);
-        node.style.setProperty("--turn", `${(Math.atan(slope) * 180) / Math.PI}deg`);
+      const start = (across - length) / 2;
+      let x = start;
+      for (const { node, tile, width } of row) {
+        const t = length > 0 ? (x + width / 2 - start) / length : 0.5;
+        paintPiece(node, tile.ch, false, { x, y: TABLE.top + index * TABLE.line - 4 * rise * t * (1 - t) });
         x += width + TABLE.gap;
       }
     });
     this.#table.style.setProperty("--table-h", TABLE.top * 2 + (rows.length - 1) * TABLE.line);
   }
-
-  /** How many board units one screen pixel is. */
-  get unitsPerPixel() {
-    return this.#width / this.#field.getBoundingClientRect().width;
-  }
-
-  /** A pointer position in board units, and how far outside the board it is (0 when inside). */
-  pointAt({ clientX, clientY }) {
-    const rect = this.#field.getBoundingClientRect();
-    const scale = this.#width / rect.width;
-    const outside = Math.max(rect.left - clientX, clientX - rect.right, rect.top - clientY, clientY - rect.bottom, 0);
-    return { x: (clientX - rect.left) * scale, y: (clientY - rect.top) * scale, outside: outside * scale };
-  }
-
-  /** Carry a letter `dx, dy` screen pixels away from its place, above everything else. (0, 0) puts it down. */
-  lift(id, dx, dy) {
-    const node = this.#nodes.get(String(id));
-    if (!node) return;
-    const lifted = dx !== 0 || dy !== 0;
-    node.style.translate = lifted ? `${dx}px ${dy}px` : "";
-    node.classList.toggle("is-lifted", lifted);
-    this.root.classList.toggle("has-lifted", lifted);
-  }
 }
 
-function element(tag, className) {
-  const node = document.createElement(tag);
-  node.className = className;
-  return node;
-}
+export const DOUBLE_TAP_MS = 350;
+const TAP_SLOP = 5; // pixels a press may wander and still count as a tap
 
-function paintTile(node, tile) {
-  const glyph = node.firstChild;
-  const text = glyphText(tile.ch);
-  if (glyph.textContent !== text) glyph.textContent = text;
-  node.dataset.ch = tile.ch;
-  node.style.setProperty("--x", tile.x);
-  node.style.setProperty("--row", tile.row);
-  node.style.setProperty("--w", glyphWidth(tile.ch));
-  // On the table, where a letter lies and how it is turned is up to #layOutTable.
-  if (!tile.loose) node.style.setProperty("--turn", tile.flip ? "180deg" : "0deg");
-  node.classList.toggle("is-used", Boolean(tile.used));
-}
-
-function watchGestures(field, handlers) {
+/**
+ * Turn presses on the pieces and the empty board under `root` into taps,
+ * double taps and drags. `handlers`: `tap(id, event)`, `doubleTap(id, event)`,
+ * `boardTap(event)` (a press on `root` itself, not on a piece), `canDrag(id)`,
+ * `drag(id, event, start)`, `drop(id, event)` and `cancel(id)`. `start` is the
+ * pointer event the press began with.
+ */
+export function watchPresses(root, handlers) {
   let press = null;
   let lastTap = { id: null, time: 0 };
 
-  field.addEventListener("pointerdown", (event) => {
+  root.addEventListener("pointerdown", (event) => {
     if (press?.dragging || (event.pointerType === "mouse" && event.button !== 0)) return;
-    const id = event.target.closest(".tile")?.dataset.id ?? null;
-    press = { pointerId: event.pointerId, id, startX: event.clientX, startY: event.clientY, dragging: false };
+    const id = event.target.closest(".piece[data-id]")?.dataset.id ?? null;
+    if (id === null && !event.target.closest("[data-board-tap]")) return;
+    press = { pointerId: event.pointerId, id, start: event, dragging: false };
     // Keep the keyboard focus where it is, and do not start selecting text.
     if (id !== null) event.preventDefault();
     try {
-      field.setPointerCapture(event.pointerId);
+      root.setPointerCapture(event.pointerId);
     } catch {
       // Only real pointers can be captured; scripted ones (in tests) cannot.
     }
   });
 
-  field.addEventListener("pointermove", (event) => {
+  root.addEventListener("pointermove", (event) => {
     if (!press || event.pointerId !== press.pointerId || press.id === null) return;
-    const dx = event.clientX - press.startX;
-    const dy = event.clientY - press.startY;
     if (!press.dragging) {
-      if (Math.hypot(dx, dy) < TAP_SLOP) return;
-      // Too far to be a tap. If the letter cannot be dragged, the press comes to nothing.
-      if (handlers.canDrag?.(press.id, event) === false) {
+      const moved = Math.hypot(event.clientX - press.start.clientX, event.clientY - press.start.clientY);
+      if (moved < TAP_SLOP) return;
+      if (handlers.canDrag?.(press.id) === false) {
         press = null;
         return;
       }
       press.dragging = true;
     }
-    handlers.drag?.(press.id, event, dx, dy);
+    handlers.drag?.(press.id, event, press.start);
   });
 
-  field.addEventListener("pointerup", (event) => {
+  root.addEventListener("pointerup", (event) => {
     if (!press || event.pointerId !== press.pointerId) return;
     const { id, dragging } = press;
     press = null;
@@ -226,7 +192,7 @@ function watchGestures(field, handlers) {
     }
   });
 
-  field.addEventListener("pointercancel", (event) => {
+  root.addEventListener("pointercancel", (event) => {
     if (!press || event.pointerId !== press.pointerId) return;
     if (press.dragging) handlers.cancel?.(press.id);
     press = null;
