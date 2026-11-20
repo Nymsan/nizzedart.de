@@ -27,12 +27,11 @@ const workspace = new Workspace({
 });
 
 let galleryShown = GALLERY_PAGE;
-let saveTimer = 0;
 let isSaving = false;
 
 fitToWindow();
 bindControls();
-useBoard(library.source, library.draft);
+useBoard(library.source);
 openLinkedBoard();
 loadGallery();
 // The letters are measured in the board font: lay them out again once it is there.
@@ -56,11 +55,14 @@ function fitToWindow() {
 
 // --- The board in play -------------------------------------------------------
 
-/** Put a board's letters in play. `draft` is how they were left last time. */
+/**
+ * Put a board's letters in play, as the board was left. `draft` is how they
+ * lay before, to have that back. Where they lie is not kept: a reload starts
+ * the board afresh.
+ */
 function useBoard(board, draft = []) {
   library.source = board;
   workspace.setSource(board.tiles, draft, parseInt(board.id.slice(0, 8), 16));
-  library.draft = workspace.draft;
   library.save();
   $("#byline").textContent = board.author ? `lavet af ${board.author}` : "";
   renderLists();
@@ -76,11 +78,7 @@ function switchTo(board) {
 }
 
 function onWorkspaceChange() {
-  $("#originalButton").setAttribute("aria-pressed", String(workspace.showingOriginal));
-  // Remember how the letters lie, but not on every step of a drag.
-  library.draft = workspace.draft;
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => library.save(), 300);
+  $("#originalButton").classList.toggle("is-held", workspace.showingOriginal);
 }
 
 /** Save what is on the board as a new board, and offer to pass it on. */
@@ -190,7 +188,7 @@ function bindControls() {
   $("#removeButton").addEventListener("click", () => workspace.removeAll());
   $("#scatterButton").addEventListener("click", () => workspace.scatter());
   $("#sortButton").addEventListener("click", () => workspace.sortTable());
-  $("#originalButton").addEventListener("click", () => workspace.toggleOriginal());
+  holdToShowOriginal($("#originalButton"));
   $("#authorCancelButton").addEventListener("click", () => $("#authorDialog").close());
   $("#menuButton").addEventListener("click", () => ($("#menu").hidden ? openMenu() : closeMenu()));
   $("#menuCloseButton").addEventListener("click", closeMenu);
@@ -212,6 +210,31 @@ function bindControls() {
   window.addEventListener("hashchange", openLinkedBoard);
   // A phone may throw the page away while it is in the background.
   window.addEventListener("pagehide", () => library.save());
+}
+
+/** "vis original" shows the previous message for as long as it is held down, by pointer or key. */
+function holdToShowOriginal(button) {
+  const show = (on) => workspace.showOriginal(on);
+  button.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    try {
+      button.setPointerCapture(event.pointerId);
+    } catch {
+      // Only real pointers can be captured; scripted ones (in tests) cannot.
+    }
+    show(true);
+  });
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture", "blur"]) button.addEventListener(type, () => show(false));
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== " " && event.key !== "Enter") return;
+    event.preventDefault();
+    show(true);
+  });
+  button.addEventListener("keyup", (event) => {
+    if (event.key === " " || event.key === "Enter") show(false);
+  });
+  // A long press on a touch screen would otherwise bring up a menu.
+  button.addEventListener("contextmenu", (event) => event.preventDefault());
 }
 
 function onKeyDown(event) {

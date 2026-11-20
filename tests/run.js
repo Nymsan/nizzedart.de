@@ -62,7 +62,8 @@ function tick() {
 }
 
 async function until(condition, what = "condition") {
-  const end = performance.now() + 3000;
+  // Generous: a headless browser can hold the page's timers back for seconds (a tap waits 350 ms for a second one).
+  const end = performance.now() + 10000;
   while (!condition()) {
     if (performance.now() > end) throw new Error(`timed out waiting for ${what}`);
     await tick();
@@ -513,7 +514,7 @@ const someBoard = (ch = "A", parentId = null) => decodeBoard(encodeBoard({ tiles
 
 test("library: starts with the original", () => {
   const library = new Library(fakeStorage());
-  equal([library.saved.length, library.source.id, library.draft], [0, ORIGINAL.id, []]);
+  equal([library.saved.length, library.source.id], [0, ORIGINAL.id]);
   equal(library.titleOf(ORIGINAL), MARIANNE);
   equal(library.find(ORIGINAL.id), ORIGINAL);
 });
@@ -558,33 +559,24 @@ test("library: a forgotten board can be put back where it was", () => {
   equal(new Library(storage).saved.length, 3);
 });
 
-test("library: remembers the board in play and how its letters lie", () => {
+test("library: remembers the board in play and the name, but not where its letters lie", () => {
   const storage = fakeStorage();
   const library = new Library(storage);
   const board = someBoard();
   library.source = board; // not kept: it could be a board from the gallery
-  library.draft = [
-    { src: "s0", x: 16, row: 2, flip: false },
-    { src: "s1", tx: 900, ty: 300, flip: true },
-  ];
   library.author = "Bo";
   library.save();
+  assert(!("draft" in JSON.parse(storage.getItem(STORAGE_KEY))), "where the letters lie is not saved");
 
   const again = new Library(storage);
-  equal([again.source.id, again.draft, again.author], [board.id, library.draft, "Bo"]);
-});
-
-test("library: lets go of an unfinished message from the old two boards", () => {
-  const old = { boards: [], source: someBoard().code, draft: [{ src: "s0", x: 16, row: 2, flip: false }] };
-  const library = new Library(fakeStorage({ [STORAGE_KEY]: JSON.stringify(old) }));
-  equal([library.source.code, library.draft], [old.source, []]);
+  equal([again.source.id, again.author], [board.id, "Bo"]);
 });
 
 test("library: survives broken storage", () => {
   equal(new Library(fakeStorage({ [STORAGE_KEY]: "{not json" })).saved.length, 0);
   const odd = { boards: [{ code: "nope" }, null, { code: someBoard().code, origin: "weird" }], source: 5, draft: "x", draftVersion: 2 };
   const library = new Library(fakeStorage({ [STORAGE_KEY]: JSON.stringify(odd) }));
-  equal([library.saved.length, library.saved[0]?.origin, library.source.id, library.draft], [1, "mine", ORIGINAL.id, []]);
+  equal([library.saved.length, library.saved[0]?.origin, library.source.id], [1, "mine", ORIGINAL.id]);
 });
 
 test("library: reads the gallery, newest first, skipping what it cannot read", () => {
@@ -798,14 +790,26 @@ test("page: the dice throws the letters about on the table, and sorter a-z lays 
   assert(onTable().every((node) => !turned(node)), "the right way up, the arrows pointing right");
 });
 
-test("page: vis original shows the previous message on the board, and hides it again", async () => {
+test("page: vis original shows the previous message on the board for as long as it is held", async () => {
   await openApp();
   $("#removeButton").click();
-  $("#originalButton").click();
-  equal($("#originalButton").getAttribute("aria-pressed"), "true");
-  equal($$("#felt .original .piece").length, 61);
-  $("#originalButton").click();
-  equal([$("#originalButton").getAttribute("aria-pressed"), $$("#felt .original .piece").length], ["false", 0]);
+  const button = $("#originalButton");
+  const shown = () => [button.classList.contains("is-held"), $$("#felt .original .piece").length];
+
+  pointer("pointerdown", button, centre(button));
+  equal(shown(), [true, 61], "held down");
+  pointer("pointerup", button, centre(button));
+  equal(shown(), [false, 0], "let go");
+
+  button.click();
+  equal(shown(), [false, 0], "a click is no toggle");
+
+  const key = (type) => button.dispatchEvent(new (win().KeyboardEvent)(type, { key: " ", bubbles: true, cancelable: true }));
+  key("keydown");
+  equal(shown(), [true, 61], "held with the space bar");
+  key("keyup");
+  equal(shown(), [false, 0]);
+  equal(onBoard().length, 0, "the space was not typed on the board");
 });
 
 test("page: letters can be dragged from the table onto the board, into a groove, and off again", async () => {
@@ -838,24 +842,89 @@ test("page: letters on the board can be moved, and turned with a double tap", as
   assert(turned(l), "a double tap turns it");
 });
 
-test("page: a tap puts a letter from the board on the table, and from the table up at the cursor", async () => {
+test("page: a tap sends a letter back where it was", async () => {
   await openApp();
+  const l = onBoard()[0];
+  const onBoardAt = place(l);
+  tap(l);
+  equal(onBoard().length, 61, "not straight away, a second tap would turn it");
+  await until(() => onBoard().length === 60, "the letter to come off");
+  assert(l.classList.contains("on-table"));
+  tap(l);
+  await until(() => onBoard().length === 61, "the letter to go back up");
+  equal(place(l), onBoardAt, "back in its place on the board");
+
+  // A letter typed from the table goes back to its place on the table.
   $("#removeButton").click();
-  typeText("nej");
-  const e = onBoard().find((node) => node.dataset.ch === "E");
+  const e = pieceOf("E");
+  const onTableAt = place(e);
+  typeText("e");
+  assert(e.classList.contains("on-board"));
   tap(e);
-  equal(onBoard().length, 3, "not straight away, a second tap would turn it");
-  await until(() => onBoard().length === 2, "the letter to come off");
-  equal(boardText(), "N J");
-  // Tap the board low down to put the cursor there, then a letter on the table.
+  await until(() => e.classList.contains("on-table"), "the letter to come off");
+  equal(place(e), onTableAt, "back in its place on the table");
+});
+
+test("page: a tap puts a letter that was never on the board up at the cursor", async () => {
+  const sent = encodeBoard({ tiles: [...layoutText([{ row: 5, text: "HEJ" }]), tile("X", 0, ROW_MAX, false, true)], author: "Bo" });
+  await openApp({ hash: `#b=${sent}` });
   const felt = $("#felt").getBoundingClientRect();
   const scale = pixelsPerUnit();
-  pointer("pointerdown", $("#felt"), { x: felt.left + 300 * scale, y: felt.top + 600 * scale });
-  pointer("pointerup", $("#felt"), { x: felt.left + 300 * scale, y: felt.top + 600 * scale });
-  tap(pieceOf("Z"));
-  await until(() => onBoard().length === 3, "the letter to go up");
-  const z = onBoard().find((node) => node.dataset.ch === "Z");
-  equal(place(z)[1], 30 * GROOVE, "at the cursor");
+  const at = { x: felt.left + 300 * scale, y: felt.top + 600 * scale };
+  pointer("pointerdown", $("#felt"), at);
+  pointer("pointerup", $("#felt"), at);
+  tap(pieceOf("X"));
+  await until(() => onBoard().length === 4, "the letter to go up");
+  equal(place(onBoard().find((node) => node.dataset.ch === "X"))[1], 30 * GROOVE, "at the cursor");
+});
+
+test("page: Ctrl+Z takes back what was done, and Ctrl+Shift+Z or Ctrl+Y does it again", async () => {
+  await openApp();
+  // Where every letter is, in the order of the letters (what was moved last lies on top, so the order on the page changes).
+  const where = () =>
+    $$("#felt .pieces .piece")
+      .map((node) => [node.dataset.id, node.dataset.ch, node.classList.contains("on-board"), ...place(node)])
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  const start = where();
+  const undo = (options = {}) => press("z", { ctrlKey: true, ...options });
+
+  $("#removeButton").click();
+  const off = where();
+  undo();
+  equal(where(), start, "the letters are back on the board");
+  press("Z", { ctrlKey: true, shiftKey: true });
+  equal(where(), off, "and off it again");
+  undo({ ctrlKey: false, metaKey: true });
+  equal(where(), start, "Cmd+Z on a Mac");
+  press("y", { ctrlKey: true });
+  equal(where(), off, "Ctrl+Y");
+
+  typeText("nej ");
+  typeText("du");
+  equal(boardText(), "NEJ DU");
+  undo();
+  equal(where(), off, "a run of typing is taken back in one go");
+  press("y", { ctrlKey: true });
+  equal(boardText(), "NEJ DU");
+
+  $("#sortButton").click();
+  const sorted = where();
+  $("#scatterButton").click();
+  undo();
+  equal(where(), sorted, "the dice is taken back");
+
+  const n = onBoard().find((node) => node.dataset.ch === "N");
+  const before = where();
+  drag(n, 0, 9 * GROOVE * pixelsPerUnit());
+  assert(JSON.stringify(where()) !== JSON.stringify(before), "moved");
+  undo();
+  equal(where(), before, "a drag is taken back");
+  equal(boardText(), "NEJ DU", "and nothing was typed by Ctrl+Z");
+
+  for (let i = 0; i < 10; i += 1) undo();
+  equal(where(), start, "all the way back to the start");
+  undo();
+  equal(where(), start, "and no further");
 });
 
 test("page: typing takes letters from the table, and Shift turns them upside down", async () => {
@@ -929,21 +998,19 @@ test("page: saving asks for a name, and the message becomes the next board", asy
   assert(card.textContent.includes(`Bygget på: ${MARIANNE}`));
 });
 
-test("page: remembers how the letters lie after a reload", async () => {
+test("page: a reload starts the board afresh, and remembers the boards saved", async () => {
   await openApp();
+  await saveAs("Ann");
+  $("#shareDialog").close();
   $("#removeButton").click();
   typeText("nej");
-  $("#sortButton").click();
-  const lying = onTable().map((node) => [node.dataset.ch, ...place(node)]);
   win().dispatchEvent(new (win().Event)("pagehide"));
   const stored = localStorage.getItem(STORAGE_KEY);
 
   await openApp({ storage: stored });
-  equal(boardText(), "NEJ");
-  equal(
-    onTable().map((node) => [node.dataset.ch, ...place(node)]),
-    lying,
-  );
+  equal([onBoard().length, onTable().length, boardText()], [61, 0, MARIANNE], "the board as it was saved, not as it was left");
+  equal($("#byline").textContent, "lavet af Ann");
+  equal($$("#savedList .card").length, 1);
 });
 
 test("page: a share link opens the board, ready to build on", async () => {

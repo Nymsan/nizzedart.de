@@ -19,12 +19,25 @@ import { BOARD_W, LINE_STEP, STAND_IN, WORD_GAP, gapAfter } from "./glyphs.js";
  * The letters of the previous message. Each is either on the board ("used",
  * as a tile of the editor) or lying on the table next to it, at `table`:
  * `{ x, y, flip }` in felt units, x its left edge and y its middle. A letter
- * that has just come off the board has no place on the table yet (null): the
- * workspace finds it one.
+ * that has just come off the board goes back where it lay on the table, if it
+ * came from there; if not, it has no place on the table yet (null), and the
+ * workspace finds it one. `x`, `row` and `flip` are where it was last on the
+ * board (`wasOnBoard`).
  */
 export class Pool {
   constructor(tiles) {
-    this.tiles = tiles.map(({ ch, x, row, flip, loose }, i) => ({ ch, x, row, flip, loose, id: `s${i}`, used: false, table: null }));
+    this.tiles = tiles.map(({ ch, x, row, flip, loose }, i) => ({
+      ch,
+      x,
+      row,
+      flip,
+      loose,
+      id: `s${i}`,
+      used: false,
+      table: null,
+      lastTable: null,
+      wasOnBoard: !loose,
+    }));
   }
 
   tile(id) {
@@ -45,15 +58,16 @@ export class Pool {
   }
 
   take(piece) {
-    Object.assign(this.#tile(piece.src), { used: true, table: null });
+    const tile = this.#tile(piece.src);
+    Object.assign(tile, { used: true, lastTable: tile.table, table: null });
   }
 
   /** The letter comes off the board. `from` is the tile it was there, `{ x, row, flip }`. */
   putBack(src, from = null) {
     const tile = this.#tile(src);
     tile.used = false;
-    tile.table = null;
-    if (from) Object.assign(tile, { x: from.x, row: from.row, flip: Boolean(from.flip) });
+    tile.table = tile.lastTable && { ...tile.lastTable };
+    if (from) Object.assign(tile, { x: from.x, row: from.row, flip: Boolean(from.flip), wasOnBoard: true });
   }
 
   /** Lay a letter that is not on the board somewhere on the table. */
@@ -217,6 +231,18 @@ export class Editor {
   removeBySource(src) {
     const tile = this.tiles.find((candidate) => candidate.src === src);
     if (tile) this.remove(tile.id);
+  }
+
+  /** Everything about the board, to have it back with `restoreSnapshot` (for undo). */
+  snapshot() {
+    return { tiles: this.tiles.map((tile) => ({ ...tile })), cursor: { ...this.cursor }, typed: [...this.#typed] };
+  }
+
+  /** Put the board back as `snapshot` had it. The supply is put back by its owner. */
+  restoreSnapshot({ tiles, cursor, typed }) {
+    this.tiles = tiles.map((tile) => ({ ...tile }));
+    this.cursor = { ...cursor };
+    this.#typed = [...typed];
   }
 
   clear() {

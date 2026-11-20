@@ -43,9 +43,6 @@ export const ORIGINAL = Object.freeze(
   ),
 );
 
-/** The unfinished message is kept in this form; older forms are let go. */
-const DRAFT_VERSION = 2;
-
 export class Library {
   /** Boards saved ("mine") or opened from a link ("link") in this browser, newest first. */
   saved = [];
@@ -53,9 +50,8 @@ export class Library {
   gallery = [];
   /** The name last used when saving. */
   author = "";
-  /** The board whose letters are in play, and the unfinished message written with them. */
+  /** The board whose letters are in play. */
   source = ORIGINAL;
-  draft = [];
   #storage;
 
   constructor(storage) {
@@ -113,8 +109,6 @@ export class Library {
     const state = {
       boards: this.saved.map(({ code, origin, title }) => ({ code, origin, title })),
       source: this.source.code,
-      draft: this.draft,
-      draftVersion: DRAFT_VERSION,
       author: this.author,
     };
     try {
@@ -152,8 +146,6 @@ export class Library {
     try {
       const source = decodeBoard(state.source);
       this.source = this.find(source.id) ?? source;
-      const draft = state.draftVersion === DRAFT_VERSION && Array.isArray(state.draft) ? state.draft : [];
-      this.draft = draft.filter((item) => item && typeof item === "object");
     } catch {
       // No usable source: start from the original.
     }

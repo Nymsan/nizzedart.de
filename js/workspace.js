@@ -18,6 +18,7 @@ import { BOARD_H, EDGE, FELT_W, GROOVE, glyphForKey, glyphText, glyphWidth, sort
 const SORTED = { left: 40, top: 96, topNarrow: 50, width: 572, gap: 17.5, line: 69 };
 const SCATTER = { x: 321, y: 442, rx: 251, ry: 341, count: 61, room: 62 };
 const MARGIN = 12; // how close to the edge of the page a letter may lie
+const UNDO_STEPS = 100;
 
 const plain = ({ ch, x, row, flip, loose }) => ({ ch, x, row, flip, loose });
 
@@ -38,6 +39,11 @@ export class Workspace {
   #showingOriginal = false;
   #drag = null;
   #pendingTap = 0;
+  /** What things looked like before each thing done, to undo it, and what was undone, to redo it. */
+  #undone = [];
+  #redone = [];
+  /** What the last thing done was, when typing: a run of typing is undone in one go. */
+  #lastKind = null;
   #seed = 1;
   /** Whether anything has been done with the letters since they were put in play. */
   #touched = false;
@@ -82,6 +88,9 @@ export class Workspace {
       );
     }
     this.#touched = false;
+    this.#undone = [];
+    this.#redone = [];
+    this.#lastKind = null;
     this.#render({ touched: false });
   }
 
@@ -113,15 +122,17 @@ export class Workspace {
       this.#notify("Tavlen er allerede tom");
       return;
     }
-    this.#composer.clear();
+    this.#record(() => this.#composer.clear());
   }
 
   /** Throw the letters on the table about in a heap. */
   scatter(random = Math.random) {
     const loose = this.#pool.leftovers;
     if (loose.length === 0) return this.#notify("Der ligger ingen bogstaver på bordet");
-    this.#scatterOnTable(loose, random);
-    this.#render();
+    this.#record(() => {
+      this.#scatterOnTable(loose, random);
+      this.#render();
+    });
   }
 
   /** Lay the letters on the table out in rows, in the order of the alphabet. */
@@ -132,12 +143,25 @@ export class Workspace {
       loose.map((tile) => tile.ch),
       this.#zone(),
     );
-    loose.forEach((tile, i) => this.#pool.lay(tile.id, places[i]));
-    this.#render();
+    this.#record(() => {
+      loose.forEach((tile, i) => this.#pool.lay(tile.id, places[i]));
+      this.#render();
+    });
   }
 
-  /** Show the previous message on the board instead of what is on it now, or go back. */
-  toggleOriginal(show = !this.#showingOriginal) {
+  /** Take back the last thing done with the letters. */
+  undo() {
+    this.#step(this.#undone, this.#redone);
+  }
+
+  /** Do again what was last taken back. */
+  redo() {
+    this.#step(this.#redone, this.#undone);
+  }
+
+  /** Show the previous message on the board instead of what is on it now (while "vis original" is held), or go back. */
+  showOriginal(show) {
+    if (this.#showingOriginal === show) return;
     this.#showingOriginal = show;
     this.#render({ touched: false });
   }
@@ -158,26 +182,90 @@ export class Workspace {
 
   /** Returns true if the key was meant for the board. */
   handleKey(event) {
-    // AltGr, which types @ on many keyboards, is reported as Ctrl+Alt.
+    // Ctrl+Z and Ctrl+Shift+Z or Ctrl+Y, or Cmd on a Mac. AltGr, which types
+    // @ on many keyboards, is reported as Ctrl+Alt, and is not one of them.
+    const command = (event.ctrlKey || event.metaKey) && !event.altKey;
+    const key = event.key.toLowerCase();
+    if (command && key === "z") {
+      if (event.shiftKey) this.redo();
+      else this.undo();
+      return true;
+    }
+    if (command && key === "y") {
+      this.redo();
+      return true;
+    }
     if (event.metaKey || (event.ctrlKey && !event.altKey)) return false;
 
     const editor = this.#composer;
     const steps = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-    const run = (action) => {
+    const run = (action, kind) => {
       this.#endOriginal();
       this.#cursorShown = true;
-      action();
+      this.#record(action, kind);
       this.#render();
       return true;
     };
-    if (steps[event.key]) return run(() => editor.moveCursor(...steps[event.key]));
-    if (event.key === "Backspace") return run(() => editor.backspace());
-    if (event.key === "Enter") return run(() => editor.newLine());
-    if (event.key === " ") return run(() => editor.space());
+    if (steps[event.key]) {
+      this.#lastKind = null; // moving the cursor ends a run of typing
+      return run(() => editor.moveCursor(...steps[event.key]));
+    }
+    if (event.key === "Backspace") return run(() => editor.backspace(), "erase");
+    if (event.key === "Enter") return run(() => editor.newLine(), "type");
+    if (event.key === " ") return run(() => editor.space(), "type");
 
     const glyph = glyphForEvent(event);
     if (!glyph) return false;
-    return run(() => this.#type(glyph.ch, glyph.flip));
+    return run(() => this.#type(glyph.ch, glyph.flip), "type");
+  }
+
+  // --- Undo ------------------------------------------------------------------
+
+  /**
+   * Do `action`, and remember how things were before it, if it changed where
+   * any letter is. Actions of the same `kind` one after another (typing, or
+   * erasing) are undone together.
+   */
+  #record(action, kind = null) {
+    const before = this.#snapshot();
+    action();
+    if (sameLetters(before, this.#snapshot())) return;
+    if (!kind || kind !== this.#lastKind) {
+      this.#undone.push(before);
+      if (this.#undone.length > UNDO_STEPS) this.#undone.shift();
+    }
+    this.#lastKind = kind;
+    this.#redone = [];
+  }
+
+  #step(from, to) {
+    if (this.#drag || from.length === 0) return;
+    clearTimeout(this.#pendingTap);
+    this.#endOriginal();
+    to.push(this.#snapshot());
+    const snapshot = from.pop();
+    this.#composer.restoreSnapshot(snapshot.board);
+    snapshot.letters.forEach((letter, i) =>
+      Object.assign(this.#pool.tiles[i], letter, { table: letter.table && { ...letter.table }, lastTable: letter.lastTable && { ...letter.lastTable } }),
+    );
+    this.#lastKind = null;
+    this.#render();
+  }
+
+  /** Where every letter is now, and the cursor. */
+  #snapshot() {
+    return {
+      board: this.#composer.snapshot(),
+      letters: this.#pool.tiles.map(({ used, x, row, flip, wasOnBoard, table, lastTable }) => ({
+        used,
+        x,
+        row,
+        flip,
+        wasOnBoard,
+        table: table && { ...table },
+        lastTable: lastTable && { ...lastTable },
+      })),
+    };
   }
 
   #type(ch, flip) {
@@ -191,7 +279,7 @@ export class Workspace {
   }
 
   #endOriginal() {
-    if (this.#showingOriginal) this.toggleOriginal(false);
+    this.showOriginal(false);
   }
 
   // --- The table -------------------------------------------------------------
@@ -349,30 +437,39 @@ export class Workspace {
       tap: (key) => {
         const piece = this.#find(key);
         if (!piece || (piece.kind === "board" && this.#showingOriginal)) return;
-        // Wait a moment: a second tap turns the letter instead. Then a letter
-        // on the board goes onto the table, and one on the table up at the cursor.
+        // Wait a moment: a second tap turns the letter instead. Then the letter
+        // goes back where it was: off the board onto the table, or from the
+        // table up where it was on the board (at the cursor, if it never was).
         clearTimeout(this.#pendingTap);
         this.#pendingTap = setTimeout(() => {
           const now = this.#find(key);
           if (!now || now.kind !== piece.kind) return;
-          if (now.kind === "board") editor().remove(now.tile.id);
-          else this.#reportFull(this.#composer.place(this.#pool.piece(key), now.flip));
+          this.#record(() => {
+            if (now.kind === "board") return editor().remove(now.tile.id);
+            const letter = now.tile;
+            const piece = this.#pool.piece(key);
+            const back = letter.wasOnBoard ? editor().drop(piece, letter.x, letter.row, now.flip) : "full";
+            if (back !== "ok") this.#reportFull(editor().place(piece, now.flip));
+          });
         }, DOUBLE_TAP_MS);
       },
       doubleTap: (key) => {
         clearTimeout(this.#pendingTap);
         const piece = this.#find(key);
         if (!piece || (piece.kind === "board" && this.#showingOriginal)) return;
-        if (piece.kind === "board") editor().flip(piece.tile.id);
-        if (piece.kind === "table") {
-          this.#pool.lay(key, { ...piece.tile.table, flip: !piece.flip });
-          this.#render();
-        }
+        this.#record(() => {
+          if (piece.kind === "board") editor().flip(piece.tile.id);
+          if (piece.kind === "table") {
+            this.#pool.lay(key, { ...piece.tile.table, flip: !piece.flip });
+            this.#render();
+          }
+        });
       },
       boardTap: (event) => {
         if (this.#showingOriginal) return;
         const point = this.#pointAt(event);
         this.#cursorShown = true;
+        this.#lastKind = null; // moving the cursor ends a run of typing
         editor().setCursor(point.x - EDGE, rowAt(point.y));
       },
       drag: (key, event, start) => {
@@ -413,22 +510,20 @@ export class Workspace {
         const node = this.#nodes.get(key);
         // What was moved last lies on top.
         node?.parentNode?.append(node);
-        if (piece.kind === "board") {
-          if (target.onBoard) {
+        this.#record(() => {
+          if (piece.kind === "board" && target.onBoard) {
             editor().moveTo(piece.tile.id, target.x, target.row);
-          } else {
+          } else if (piece.kind === "board") {
             // Off the board: onto the table, where it was let go.
             editor().remove(piece.tile.id);
             this.#pool.lay(piece.tile.src, { x: target.x, y: target.y, flip: piece.flip });
+          } else if (target.onBoard) {
+            this.#reportFull(this.#composer.drop(this.#pool.piece(key), target.x, target.row, piece.flip));
+          } else {
+            this.#pool.lay(key, { x: target.x, y: target.y, flip: piece.flip });
           }
           this.#render();
-        } else if (target.onBoard) {
-          this.#reportFull(this.#composer.drop(this.#pool.piece(key), target.x, target.row, piece.flip));
-          this.#render();
-        } else {
-          this.#pool.lay(key, { x: target.x, y: target.y, flip: piece.flip });
-          this.#render();
-        }
+        });
       },
       cancel: () => {
         this.#drag = null;
@@ -436,6 +531,11 @@ export class Workspace {
       },
     };
   }
+}
+
+/** Whether two snapshots have every letter in the same place, whatever the cursor. */
+function sameLetters(a, b) {
+  return JSON.stringify([a.board.tiles, a.letters]) === JSON.stringify([b.board.tiles, b.letters]);
 }
 
 /** Where letters `chars` go when laid out in rows by "sorter a-z", in the order they are given in. */
