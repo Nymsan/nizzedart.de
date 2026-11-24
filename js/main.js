@@ -13,9 +13,11 @@ import { Workspace } from "./workspace.js";
 const GALLERY_PAGE = 12;
 
 /** The design is drawn for a window this size, in pixels. */
-const DESIGN = { width: 1280, height: 730, frame: 368 };
+const DESIGN = { width: 1280, height: 730, frame: 368, board: 517 };
 /** On a narrow screen, standing up, the table goes under the board (keep in step with styles.css). */
 const NARROW = window.matchMedia("(max-aspect-ratio: 1/1) and (max-width: 999.98px)");
+/** In pixels: the header above the board, the two rows of buttons under it, the least room for the table, the margin. */
+const NARROW_LAYOUT = { above: 58, below: 92, table: 150, gutter: 12 };
 
 const library = new Library(browserStorage());
 const workspace = new Workspace({
@@ -28,6 +30,8 @@ const workspace = new Workspace({
 
 let galleryShown = GALLERY_PAGE;
 let isSaving = false;
+/** The window size the board on a narrow screen was last fitted to. */
+let narrowSize = null;
 
 fitToWindow();
 bindControls();
@@ -46,11 +50,28 @@ function browserStorage() {
   }
 }
 
-/** Scale the page to the window: as in the design on a wide screen, as wide as it goes on a narrow one. */
+/**
+ * Scale the page to the window: as in the design on a wide screen. On a narrow
+ * one, as wide as it goes, but no taller than leaves room under the board for
+ * its buttons and the table, so the whole of it fits on the screen.
+ */
 function fitToWindow() {
   const { innerWidth: width, innerHeight: height } = window;
-  const scale = NARROW.matches ? Math.min((width - 32) / DESIGN.frame, 1.4) : Math.min(width / DESIGN.width, height / DESIGN.height);
-  document.documentElement.style.setProperty("--s", Math.max(scale, 0.3).toFixed(4));
+  if (!NARROW.matches) narrowSize = null;
+  const fitted = NARROW.matches ? narrowScale(width, height) : Math.max(Math.min(width / DESIGN.width, height / DESIGN.height), 0.3);
+  if (fitted === null) return;
+  document.documentElement.style.setProperty("--s", fitted.toFixed(4));
+}
+
+function narrowScale(width, height) {
+  // A phone's toolbars come and go as the page scrolls, and the keyboard takes
+  // half the screen: the board keeps its size through that, and only changes
+  // when the phone is turned, or the window is made a quite different size.
+  if (narrowSize && narrowSize.width === width && Math.abs(narrowSize.height - height) < 160) return null;
+  narrowSize = { width, height };
+  const table = Math.max(NARROW_LAYOUT.table, height * 0.22);
+  const tall = (height - NARROW_LAYOUT.above - NARROW_LAYOUT.below - table) / DESIGN.board;
+  return Math.max(Math.min((width - 2 * NARROW_LAYOUT.gutter) / DESIGN.frame, tall, 1.4), 0.6);
 }
 
 // --- The board in play -------------------------------------------------------

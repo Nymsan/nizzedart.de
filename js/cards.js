@@ -30,7 +30,6 @@ function card(board, { library, activeId, onUse, onShare, onForget }) {
     { className: "card-text" },
     h("h3", { className: "card-title", textContent: title, title }),
     h("p", { className: "card-meta", textContent: facts.join(" · ") }),
-    h("p", { className: "card-meta", textContent: lineage(board, library) }),
   );
   if (isActive) text.prepend(h("span", { className: "card-badge", textContent: "på tavlen nu" }));
 
@@ -43,11 +42,4 @@ function card(board, { library, activeId, onUse, onShare, onForget }) {
   node.classList.toggle("is-active", isActive);
 
   return node;
-}
-
-/** Where a board's letters came from. */
-function lineage(board, library) {
-  if (board.parentId === null) return board.createdAt > 0 ? "Ny start" : "Her begyndte det hele";
-  const parent = library.find(board.parentId);
-  return parent ? `Bygget på: ${library.titleOf(parent)}` : "";
 }

@@ -995,7 +995,7 @@ test("page: saving asks for a name, and the message becomes the next board", asy
   const card = $("#savedList .card");
   equal([$$("#savedList .card").length, card.querySelector(".card-title").textContent], [1, "NEJ"]);
   assert(card.classList.contains("is-active"));
-  assert(card.textContent.includes(`Bygget på: ${MARIANNE}`));
+  assert(!/Bygget på|Ny start|begyndte/.test($("#menu").textContent), "no lines about where a board came from");
 });
 
 test("page: a reload starts the board afresh, and remembers the boards saved", async () => {

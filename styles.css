@@ -380,11 +380,22 @@ button {
   pointer-events: none;
 }
 
-/* On a narrow screen, standing up, the table is under the board. */
+/* On a narrow screen, standing up (a phone), the table is under the board.
+   There is no design for this yet. The board is made small enough that the
+   board, its buttons and the table all fit on the screen (js/main.js), so a
+   letter can be moved from the table up onto the board without scrolling. The
+   buttons keep a size a finger can hit, whatever size the board is. */
 @media (max-aspect-ratio: 1/1) and (max-width: 999.98px) {
   .stage {
-    --frame-top: 76px;
-    min-height: calc(76px + 1180 * var(--px));
+    --frame-top: 58px;
+    --gutter: 12px;
+    --board-left: calc(50% - 184 * var(--px));
+    --board-right: calc(50% + 184 * var(--px));
+    --board-bottom: calc(var(--frame-top) + 517 * var(--px));
+    --row-1: calc(var(--board-bottom) + 10px);
+    --row-2: calc(var(--row-1) + 46px);
+    min-height: max(100dvh, var(--row-2) + 36px + 150px);
+    touch-action: manipulation;
   }
 
   .site-header {
@@ -393,33 +404,94 @@ button {
 
   .menu-button {
     left: 16px;
-    top: 26px;
+    top: 18px;
   }
 
   .logo {
-    top: 23.5px;
+    top: 15px;
     width: min(196px, 100vw - 150px);
   }
 
+  .play .pill {
+    height: 36px;
+    min-height: 36px;
+    border-width: 2px;
+    border-radius: 12px;
+    font-size: 13px;
+    touch-action: manipulation;
+  }
+
+  /* Under the board: who made it, and "gem og del!". */
+  .byline {
+    left: var(--gutter);
+    top: var(--row-1);
+    right: calc(100% - var(--board-right) + 152px);
+    height: 36px;
+    max-width: none;
+    display: flex;
+    align-items: center;
+    font-size: 12px;
+    line-height: 14px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .save-tab {
+    left: calc(var(--board-right) - 152px);
+    top: calc(var(--board-bottom) - 6px);
+    width: 140px;
+    height: 52px;
+    border-radius: 0 0 18px 18px;
+    padding-top: 6px;
+    font-size: 17px;
+  }
+
+  /* Then a row of buttons: for the board on the left, for the table on the right. */
   .remove-button {
-    left: calc(50% - 184 * var(--px));
-    top: calc(var(--frame-top) + 585 * var(--px));
+    left: var(--gutter);
+    top: var(--row-2);
+    width: 52px;
     justify-content: center;
     padding: 0;
   }
 
+  .original-button {
+    left: calc(var(--gutter) + 60px);
+    top: var(--row-2);
+    width: auto;
+    padding: 0 14px;
+  }
+
+  .remove-button svg {
+    width: 22px;
+    height: 10.2px;
+  }
+
   .table-tools {
-    right: calc(50% - 184 * var(--px));
-    top: calc(var(--frame-top) + 585 * var(--px));
+    right: var(--gutter);
+    top: var(--row-2);
+    gap: 8px;
+  }
+
+  .scatter-button {
+    width: 52px;
+  }
+
+  .scatter-button img {
+    width: 19px;
+    height: 20px;
+  }
+
+  .sort-button {
+    width: auto;
+    padding: 0 16px;
   }
 
   .table-zone {
-    left: calc(50% - 184 * var(--px));
-    right: auto;
-    width: calc(368 * var(--px));
-    top: calc(var(--frame-top) + 625 * var(--px));
-    bottom: auto;
-    height: calc(540 * var(--px));
+    left: var(--gutter);
+    right: var(--gutter);
+    top: calc(var(--row-2) + 44px);
+    bottom: var(--gutter);
   }
 }
 

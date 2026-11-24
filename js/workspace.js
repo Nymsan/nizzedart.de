@@ -542,7 +542,8 @@ function sameLetters(a, b) {
 export function sortedPlaces(chars, zone) {
   const order = chars.map((_, i) => i).sort((a, b) => sortKey(chars[a]) - sortKey(chars[b]) || a - b);
   const left = zone.x + SORTED.left;
-  const width = Math.max(200, Math.min(SORTED.width, zone.w - 2 * SORTED.left));
+  // Beside the board, as wide as in the design; under it, as wide as the table.
+  const width = Math.max(200, Math.min(zone.beside ? SORTED.width : Infinity, zone.w - 2 * SORTED.left));
   let x = left;
   let y = zone.y + (zone.beside ? SORTED.top : SORTED.topNarrow);
   const places = [];
@@ -561,8 +562,9 @@ export function sortedPlaces(chars, zone) {
 /** Where letters `chars` go when thrown about in a heap: the right way up, and not on top of each other. */
 export function scatteredPlaces(chars, zone, random = Math.random) {
   const spread = Math.sqrt(Math.max(chars.length, 1) / SCATTER.count);
-  const rx = Math.max(60, Math.min(SCATTER.rx * spread, zone.w / 2 - 40));
-  const ry = Math.max(60, Math.min(SCATTER.ry * spread, zone.h / 2 - 50));
+  // Beside the board, a heap the size of the design's; under it, as much of the table as there is.
+  const rx = Math.max(60, Math.min(zone.beside ? SCATTER.rx * spread : Infinity, zone.w / 2 - 40));
+  const ry = Math.max(60, Math.min(zone.beside ? SCATTER.ry * spread : Infinity, zone.h / 2 - 50));
   const cx = zone.x + (zone.beside ? Math.min(SCATTER.x, zone.w / 2) : zone.w / 2);
   const cy = zone.y + (zone.beside ? Math.min(SCATTER.y, zone.h / 2) : zone.h / 2);
   const middles = [];
