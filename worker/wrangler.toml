@@ -1,0 +1,17 @@
+# The gallery's server on Cloudflare. See README.md for setting it up.
+
+name = "nizzedart"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+
+[vars]
+# The sites that may use it: the real one, and the folder served on this computer for testing.
+ALLOWED_ORIGINS = "https://www.nizzedart.de,https://nizzedart.de,http://127.0.0.1:8765,http://localhost:8765"
+# How many new boards one visitor can add in an hour.
+SAVES_PER_HOUR = "20"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nizzedart"
+# Paste the id of the database here (Cloudflare dashboard: Storage & Databases > D1 > nizzedart).
+database_id = "PASTE-THE-DATABASE-ID-HERE"

@@ -27,7 +27,9 @@ import {
   sortKey,
 } from "../js/glyphs.js";
 import { Library, ORIGINAL } from "../js/library.js";
-import { gallerySubmitUrl } from "../js/share.js";
+import { readLink, shareUrl } from "../js/share.js";
+import { galleryApi } from "../js/api.js";
+import { handle } from "../worker/src/app.js";
 import { madeRoom, scatteredPlaces, seededRandom, sortedPlaces } from "../js/workspace.js";
 
 const params = new URLSearchParams(location.search);
@@ -72,7 +74,12 @@ async function until(condition, what = "condition") {
 
 function fakeStorage(initial = {}) {
   const data = new Map(Object.entries(initial));
-  return { data, getItem: (key) => data.get(key) ?? null, setItem: (key, value) => data.set(key, String(value)) };
+  return {
+    data,
+    getItem: (key) => data.get(key) ?? null,
+    setItem: (key, value) => data.set(key, String(value)),
+    removeItem: (key) => data.delete(key),
+  };
 }
 
 const tile = (ch, x, row, flip = false, loose = false) => ({ ch, x, row, flip, loose });
@@ -125,10 +132,10 @@ test("keys: letters are upper-cased, unknown keys are ignored", () => {
   equal(glyphForKey(""), null);
 });
 
-test("keys: the arrow points the way it is typed, and . is an apostrophe turned around", () => {
+test("keys: the arrow points the way it is typed, and nothing else is made by turning a letter around", () => {
   equal(glyphForKey(">"), { ch: ">", flip: false });
   equal(glyphForKey("<"), { ch: ">", flip: true });
-  equal(glyphForKey("."), { ch: "'", flip: true });
+  equal(glyphForKey("."), null);
 });
 
 // --- Share codes -----------------------------------------------------------------
@@ -400,21 +407,18 @@ test("editor: letters are taken in reading order", () => {
   );
 });
 
-test("editor: when a letter has run out, its upside-down twin stands in", () => {
+test("editor: when a letter has run out, no other letter is turned around to stand in for it", () => {
   const { editor } = newEditor();
-  equal([editor.type("W"), editor.type("W"), editor.type("W")], ["ok", "ok", "ok"]);
+  equal([editor.type("W"), editor.type("W")], ["ok", "missing"], "one W, and the two M stay on the table");
+  equal(editor.type("6"), "ok");
+  equal(editor.type("6"), "missing", "the 9s stay on the table");
   equal(
     editor.tiles.map((t) => [t.ch, t.flip]),
     [
       ["W", false],
-      ["M", true],
-      ["M", true],
+      ["6", false],
     ],
   );
-  equal(editor.type("W"), "missing", "one W and two M");
-  equal(editor.type("6"), "ok");
-  equal(editor.type("6"), "ok", "a 9 turned around");
-  equal([editor.tiles.at(-1).ch, editor.tiles.at(-1).flip], ["9", true]);
 });
 
 test("editor: space, new line and backspace", () => {
@@ -614,6 +618,27 @@ test("library: reads the gallery, newest first, skipping what it cannot read", (
   equal(library.gallery, []);
 });
 
+test("library: the gallery lists its boards and this browser's, newest first, each once, and forgets the copies kept here", () => {
+  const storage = fakeStorage();
+  const library = new Library(storage);
+  const board = (text, createdAt) => decodeBoard(encodeBoard({ tiles: layoutText([{ row: 5, text }]), author: "Bo", createdAt }));
+  const [old, shared, mine] = [board("A", 60000), board("B", 120000), board("C", 180000)];
+  library.keep(old, "mine");
+  library.keep(shared, "link");
+  library.keep(mine, "mine");
+  library.setGallery({ boards: [{ code: ORIGINAL.code }, { code: shared.code }] });
+
+  equal(
+    library.listed.map((b) => [messageText(b.tiles), b.origin ?? "gallery"]),
+    [
+      ["C", "mine"],
+      ["B", "gallery"],
+      ["A", "mine"],
+    ],
+  );
+  equal(new Library(storage).saved.length, 2, "the copy of the gallery's board is gone from the storage");
+});
+
 test("library: carries over boards saved by the first version of the site", () => {
   const snapshot = (tiles, boardWidth = 420) => ({ boardWidth, boardHeight: 520, tiles });
   const old = {
@@ -650,7 +675,9 @@ test("library: carries over boards saved by the first version of the site", () =
     activeSourceId: "msg_2",
     lastWriterName: "Bo",
   };
-  const library = new Library(fakeStorage({ "letterboard.v6": JSON.stringify(old) }));
+  const storage = fakeStorage({ "letterboard.v6": JSON.stringify(old) });
+  const library = new Library(storage);
+  assert(!storage.data.has("letterboard.v6") && storage.data.has(STORAGE_KEY), "the old storage is cleared once carried over");
 
   equal(
     library.saved.map((b) => [library.titleOf(b), b.author, b.origin]),
@@ -667,12 +694,141 @@ test("library: carries over boards saved by the first version of the site", () =
   equal([library.source.id, library.author], [child.id, "Bo"]);
 });
 
-test("share: the gallery link carries the board's code on a line of its own", () => {
+test("library: a board that goes into the gallery is listed there, once, and no longer kept here", () => {
+  const storage = fakeStorage();
+  const library = new Library(storage);
+  const mine = library.keep(someBoard("A"), "mine");
+  library.keep(someBoard("B"), "link");
+  library.source = mine;
+  equal(library.unsent.map((b) => b.id), [mine.id], "only the boards saved here wait to go into the gallery");
+
+  const shared = library.addToGallery(mine, "abc2345");
+  equal([shared.shortId, shared.origin, library.source], ["abc2345", undefined, shared]);
+  equal(library.addToGallery(mine, "zzz9999"), shared, "only once");
+  equal([library.listed.length, library.unsent.length, new Library(storage).saved.length], [2, 0, 1]);
+
+  library.setGallery({ boards: [{ code: mine.code, id: "abc2345" }] });
+  equal(library.gallery[0].shortId, "abc2345", "the gallery's boards have their short ids");
+});
+
+test("share: a board in the gallery has a short link, any other its whole code", () => {
   const board = someBoard();
-  const url = new URL(gallerySubmitUrl(board, "HEJ & HÅ"));
-  equal(url.origin + url.pathname.replace(/^\/[^/]+\/[^/]+/, "/owner/repo"), "https://github.com/owner/repo/issues/new");
-  equal(url.searchParams.get("title"), "Tavle: HEJ & HÅ");
-  assert(url.searchParams.get("body").split("\n").includes(`board:${board.code}`));
+  assert(shareUrl(board).endsWith(`#b=${board.code}`));
+  assert(shareUrl({ ...board, shortId: "k3x9q2m" }).endsWith("#k3x9q2m"));
+  equal(readLink(`#b=${board.code}`), { code: board.code });
+  equal(readLink("#k3x9q2m"), { shortId: "k3x9q2m" });
+  equal([readLink(""), readLink("#"), readLink("#Not-A-Board")], [null, null, null]);
+});
+
+test("api: asks the gallery's server, and none is asked without an address", async () => {
+  equal(galleryApi(""), null);
+  const asked = [];
+  const answers = {
+    "GET /boards?limit=500": { boards: [{ id: "new", code: "B" }, { id: "old", code: "A" }], next: null },
+    "GET /boards/k3x9q2m": { id: "k3x9q2m", code: "C" },
+    "POST /boards": { id: "made" },
+  };
+  const api = galleryApi("https://api.example", async (url, init = {}) => {
+    const key = `${init.method ?? "GET"} ${url.replace("https://api.example", "")}`;
+    asked.push([key, init.body]);
+    return new Response(JSON.stringify(answers[key] ?? {}), { status: answers[key] ? 200 : 404 });
+  });
+  equal(await api.list(), { boards: [{ id: "old", code: "A" }, { id: "new", code: "B" }] }, "oldest first, as the library takes it");
+  equal(await api.get("k3x9q2m"), "C");
+  equal(await api.save("D"), "made");
+  equal(asked.at(-1), ["POST /boards", JSON.stringify({ code: "D" })]);
+  let failed = false;
+  await api.get("nothere").catch(() => (failed = true));
+  assert(failed, "an error answer is an error");
+});
+
+// --- The gallery's server (worker/) ---------------------------------------------------
+
+/** The boards in memory, as the worker's store keeps them in the database. */
+function memoryStore() {
+  const rows = [];
+  return {
+    rows,
+    findByCode: async (code) => rows.find((row) => row.code === code) ?? null,
+    get: async (id) => rows.find((row) => row.id === id && !row.hidden) ?? null,
+    list: async ({ limit, before }) =>
+      rows
+        .filter((row) => !row.hidden && row.addedAt < before)
+        .sort((a, b) => b.addedAt - a.addedAt)
+        .slice(0, limit)
+        .map(({ id, code, addedAt }) => ({ id, code, addedAt })),
+    countSince: async (sender, since) => rows.filter((row) => row.sender === sender && row.addedAt >= since).length,
+    insert: async (row) => {
+      if (rows.some((other) => other.id === row.id || other.code === row.code)) return false;
+      rows.push({ ...row, hidden: false });
+      return true;
+    },
+  };
+}
+
+function server(options = {}) {
+  const store = memoryStore();
+  let ids = 0;
+  let now = 1_000_000;
+  const ask = async (method, path, { body, origin = "https://www.nizzedart.de", ip = "1.2.3.4" } = {}) => {
+    // As the worker gets it. A browser will not let a page make a Request with its own Origin header.
+    const request = { method, url: `https://api.example${path}`, headers: new Headers({ Origin: origin, "CF-Connecting-IP": ip }), text: async () => body ?? "" };
+    now += 1000;
+    const response = await handle(request, { store, origins: ["https://www.nizzedart.de"], now, randomId: () => `id${(ids += 1)}aaaa`, ...options });
+    return { status: response.status, body: response.status === 204 ? null : await response.json(), headers: response.headers };
+  };
+  return { store, ask };
+}
+
+const boardWith = (text) => encodeBoard({ tiles: layoutText([{ row: 5, text }]), author: "Bo" });
+
+test("worker: a board goes into the gallery and gets a short id, the same one if it comes again", async () => {
+  const { ask } = server();
+  const code = boardWith("HEJ");
+  const first = await ask("POST", "/boards", { body: JSON.stringify({ code }) });
+  equal([first.status, first.body], [201, { id: "id1aaaa" }]);
+  const again = await ask("POST", "/boards", { body: JSON.stringify({ code }), ip: "5.6.7.8" });
+  equal([again.status, again.body], [200, { id: "id1aaaa" }]);
+  equal((await ask("GET", "/boards/id1aaaa")).body, { id: "id1aaaa", code });
+  equal((await ask("GET", "/boards/nothere")).status, 404);
+});
+
+test("worker: refuses what is not a board, and an empty one", async () => {
+  const { ask, store } = server();
+  for (const body of ["not json", JSON.stringify({}), JSON.stringify({ code: "AAAAAAAAAAAAAAAA" }), JSON.stringify({ code: 42 })]) {
+    equal((await ask("POST", "/boards", { body })).status, 400, body);
+  }
+  const empty = encodeBoard({ tiles: [tile("A", 0, ROW_MAX, false, true)], author: "Bo" });
+  equal((await ask("POST", "/boards", { body: JSON.stringify({ code: empty }) })).status, 400, "only loose letters");
+  equal((await ask("POST", "/boards", { body: "x".repeat(5000) })).status, 413);
+  equal(store.rows.length, 0);
+});
+
+test("worker: lists the gallery newest first, a page at a time, without the hidden boards", async () => {
+  const { ask, store } = server();
+  for (const text of ["A", "B", "C", "D"]) await ask("POST", "/boards", { body: JSON.stringify({ code: boardWith(text) }) });
+  store.rows[1].hidden = true;
+  const page = await ask("GET", "/boards?limit=2");
+  equal(page.body.boards.map((b) => b.id), ["id4aaaa", "id3aaaa"]);
+  const rest = await ask("GET", `/boards?limit=2&before=${page.body.next}`);
+  equal([rest.body.boards.map((b) => b.id), rest.body.next], [["id1aaaa"], null]);
+  equal((await ask("GET", "/boards/id2aaaa")).status, 404, "a hidden board's link no longer works");
+});
+
+test("worker: one sender can only add so many boards an hour", async () => {
+  const { ask } = server({ savesPerHour: 2 });
+  const save = (text, ip) => ask("POST", "/boards", { body: JSON.stringify({ code: boardWith(text) }), ip });
+  equal([(await save("A")).status, (await save("B")).status, (await save("C")).status], [201, 201, 429]);
+  equal((await save("C", "9.9.9.9")).status, 201, "another sender can");
+});
+
+test("worker: only the site may call it from a browser", async () => {
+  const { ask } = server();
+  equal((await ask("GET", "/boards")).headers.get("Access-Control-Allow-Origin"), "https://www.nizzedart.de");
+  equal((await ask("GET", "/boards", { origin: "https://elsewhere.example" })).headers.get("Access-Control-Allow-Origin"), null);
+  const preflight = await ask("OPTIONS", "/boards");
+  equal([preflight.status, preflight.headers.get("Access-Control-Allow-Methods")], [204, "GET, POST, OPTIONS"]);
+  equal((await ask("DELETE", "/boards/id1aaaa")).status, 404);
 });
 
 // --- The page itself -------------------------------------------------------------------
@@ -753,6 +909,8 @@ const boardText = () => $("#felt").getAttribute("aria-label").replace(/^Tavlen: 
 const turned = (node) => node.style.getPropertyValue("--turn") === "180deg";
 const place = (node) => [Number(node.style.getPropertyValue("--x")), Number(node.style.getPropertyValue("--y"))];
 const pieceOf = (ch) => onTable().find((node) => node.dataset.ch === ch);
+/** The cards in the gallery of boards kept only in this browser: those can be deleted. */
+const localCards = () => $$("#galleryList .card").filter((card) => [...card.querySelectorAll("button")].some((button) => button.textContent === "slet"));
 
 async function saveAs(name) {
   $("#saveButton").click();
@@ -842,11 +1000,14 @@ test("page: vis original shows the previous message on the board for as long as 
   $("#removeButton").click();
   const button = $("#originalButton");
   const shown = () => [button.classList.contains("is-held"), $$("#felt .original .piece").length];
+  const onTableShown = () => onTable().filter((node) => getComputedStyle(node).visibility !== "hidden").length;
 
   pointer("pointerdown", button, centre(button));
   equal(shown(), [true, 61], "held down");
+  equal(onTableShown(), 0, "the letters of the message go up from the table with it");
   pointer("pointerup", button, centre(button));
   equal(shown(), [false, 0], "let go");
+  equal(onTableShown(), 61, "and come back");
 
   button.click();
   equal(shown(), [false, 0], "a click is no toggle");
@@ -974,6 +1135,44 @@ test("page: Ctrl+Z takes back what was done, and Ctrl+Shift+Z or Ctrl+Y does it 
   equal(where(), start, "and no further");
 });
 
+test("page: the space and new line buttons (for a phone) type at the cursor", async () => {
+  await openApp();
+  $("#removeButton").click();
+  typeText("nej");
+  $("#spaceButton").click();
+  typeText("da");
+  $("#newLineButton").click();
+  typeText("ok");
+  equal(boardText(), "NEJ DA OK");
+  equal(new Set(onBoard().map((node) => place(node)[1])).size, 2, "on two lines");
+  assert($("#felt .cursor"), "the cursor shows where the next letter goes");
+});
+
+test("page: on a phone, a letter tapped on the table goes to the cursor, also one that was on the board", async () => {
+  await openApp();
+  frame.style.width = "400px";
+  frame.style.height = "800px";
+  try {
+    await until(() => win().innerWidth === 400 && win().matchMedia("(max-aspect-ratio: 1/1)").matches, "a phone-sized window");
+    $("#removeButton").click();
+    for (const ch of ["H", "E", "J"]) {
+      const letter = pieceOf(ch);
+      tap(letter, "touch");
+      await until(() => letter.classList.contains("on-board"), `${ch} to go up`);
+      if (ch === "E") {
+        // HE, then a space.
+        $("#spaceButton").click();
+      }
+    }
+    equal(boardText(), "HE J");
+    assert($("#felt .cursor"), "the cursor shows");
+  } finally {
+    frame.style.width = "";
+    frame.style.height = "";
+    await until(() => win().innerWidth > 1000, "the window back to its size");
+  }
+});
+
 test("page: typing takes letters from the table, and Shift turns them upside down", async () => {
   await openApp();
   typeText("n");
@@ -1013,7 +1212,7 @@ test("page: saving twice at once saves once", async () => {
   $("#authorInput").value = "Ann";
   $("#authorDialog button[value=save]").click();
   await until(() => $("#shareDialog").open, "the share dialog");
-  equal($$("#savedList .card").length, 1);
+  equal(localCards().length, 1);
 });
 
 test("page: saving asks for a name, and the message becomes the next board", async () => {
@@ -1033,15 +1232,15 @@ test("page: saving asks for a name, and the message becomes the next board", asy
   assert(Math.abs(board.createdAt - Date.now()) < 120000, "saved now");
 
   equal($("#shareHeading").textContent, "gemt! send den videre");
-  assert(!$("#submitSection").hidden && $("#submitLink").href.includes(encodeURIComponent(`board:${code}`)), "can be sent to the gallery");
+  assert($("#shareLink").value.endsWith(`#b=${code}`), "without the gallery's server, the long link");
+  assert($("#uploadNote").hidden, "and no word of uploading, with no server to upload to");
   $("#shareDialog").close();
 
   equal([onBoard().length, onTable().length, boardText()], [3, 58, "NEJ"], "the new board is in play");
   equal($("#byline").textContent, "lavet af Ann");
-  assert(!$("#savedSection").hidden);
-  const card = $("#savedList .card");
-  equal([$$("#savedList .card").length, card.querySelector(".card-title").textContent], [1, "NEJ"]);
-  assert(card.classList.contains("is-active"));
+  const card = localCards()[0];
+  equal([localCards().length, card.querySelector(".card-title").textContent], [1, "NEJ"]);
+  assert(card.classList.contains("is-active") && card.textContent.includes("ikke uploadet"));
   assert(!/Bygget på|Ny start|begyndte/.test($("#menu").textContent), "no lines about where a board came from");
 });
 
@@ -1057,7 +1256,7 @@ test("page: a reload starts the board afresh, and remembers the boards saved", a
   await openApp({ storage: stored });
   equal([onBoard().length, onTable().length, boardText()], [61, 0, MARIANNE], "the board as it was saved, not as it was left");
   equal($("#byline").textContent, "lavet af Ann");
-  equal($$("#savedList .card").length, 1);
+  equal(localCards().length, 1);
 });
 
 test("page: a share link opens the board, ready to build on", async () => {
@@ -1067,8 +1266,8 @@ test("page: a share link opens the board, ready to build on", async () => {
   equal($("#byline").textContent, "lavet af Bo");
   equal(win().location.hash, "", "the code is taken out of the address");
   assert($("#toast").textContent.includes("Bo"));
-  const card = $("#savedList .card");
-  assert(card.textContent.includes("fået sendt") && card.classList.contains("is-active"));
+  const card = localCards()[0];
+  assert(card.textContent.includes("ikke uploadet") && card.classList.contains("is-active"));
 });
 
 test("page: a share link from the first version of the site still opens", async () => {
@@ -1088,7 +1287,8 @@ test("page: the menu opens on the gallery, and shuts", async () => {
   $("#menuButton").click();
   assert(!$("#menu").hidden && $("#gallerySection").open);
   equal($("#menuButton").getAttribute("aria-expanded"), "true");
-  equal($$("#galleryList .card").length, 1, "the original");
+  equal($$("#originalsList .card").length, 1, "the original, in a list of its own");
+  assert(!$$("#galleryList .card-title").some((title) => title.textContent === MARIANNE), "and not in the gallery");
   press("Escape");
   assert($("#menu").hidden);
   $("#menuButton").click();
@@ -1105,7 +1305,7 @@ test("page: another board can be built on, and what was done can be had back", a
   typeText("e");
 
   $("#menuButton").click();
-  const original = $$("#galleryList .card").at(-1);
+  const original = $("#originalsList .card");
   original.querySelector(".card-actions button").click();
   assert($("#menu").hidden, "the menu shuts");
   equal([$("#byline").textContent, onBoard().length], ["lavet af Marianne", 61]);
@@ -1118,11 +1318,11 @@ test("page: a saved board can be deleted, and undeleted", async () => {
   await saveAs("Ann");
   $("#shareDialog").close();
   $("#menuButton").click();
-  const forget = [...$("#savedList .card").querySelectorAll("button")].find((button) => button.textContent === "slet");
+  const forget = [...localCards()[0].querySelectorAll("button")].find((button) => button.textContent === "slet");
   forget.click();
-  assert($("#savedSection").hidden);
+  equal(localCards().length, 0);
   $("#toast .toast-action").click();
-  equal($$("#savedList .card").length, 1);
+  equal(localCards().length, 1);
 });
 
 // --- Runner ------------------------------------------------------------------------------

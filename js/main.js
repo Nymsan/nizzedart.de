@@ -1,12 +1,13 @@
 // Puts the page together: the board in play, the menu with the gallery and
 // the saved boards, and the dialogs for passing a board on.
 
+import { galleryApi } from "./api.js";
 import { renderCards } from "./cards.js";
 import { decodeBoard, encodeBoard } from "./codec.js";
-import { GALLERY_URL } from "./config.js";
+import { API_URL, GALLERY_URL } from "./config.js";
 import { askAuthor, showShareDialog } from "./dialogs.js";
 import { Library, ORIGINAL } from "./library.js";
-import { takeLinkedCode } from "./share.js";
+import { takeLink } from "./share.js";
 import { $, toast } from "./ui.js";
 import { Workspace } from "./workspace.js";
 
@@ -19,6 +20,10 @@ const NARROW = window.matchMedia("(max-aspect-ratio: 1/1) and (max-width: 999.98
 /** In pixels, from the design for a phone: above the board, from the board to the table, the least of the table to see, the margin. */
 const NARROW_LAYOUT = { above: 74, below: 52, table: 150, gutter: 18 };
 
+/** How many boards saved here, but not in the gallery yet, are sent to it each time the page opens. */
+const UPLOADS_AT_START = 10;
+
+const api = galleryApi(API_URL);
 const library = new Library(browserStorage());
 const workspace = new Workspace({
   stage: $("#stage"),
@@ -123,45 +128,75 @@ async function saveBoard() {
   const board = library.keep(decodeBoard(encodeBoard({ tiles, author, parentId: library.source.id })), "mine");
   library.author = author;
   useBoard(board);
-  share(board, "gemt! send den videre");
+  await share(board, "gemt! send den videre");
 }
 
-function share(board, heading = "del tavlen") {
-  showShareDialog(board, {
-    title: library.titleOf(board),
+/** Show a board's link. A board saved here goes into the gallery first, if it can, to have its short link. */
+async function share(board, heading = "del tavlen") {
+  const shown = board.origin === "mine" ? ((await upload(board)) ?? board) : board;
+  showShareDialog(shown, {
+    title: library.titleOf(shown),
     heading,
-    canSubmit: board.id !== ORIGINAL.id && !library.gallery.some((shared) => shared.id === board.id),
+    notUploaded: Boolean(api) && shown.origin === "mine",
   });
+}
+
+/** Put a board saved here in the gallery. Resolves to the board as the gallery lists it, or null if it could not. */
+async function upload(board) {
+  if (!api) return null;
+  try {
+    const shared = library.addToGallery(board, await api.save(board.code));
+    renderLists();
+    return shared;
+  } catch {
+    return null;
+  }
+}
+
+/** Send the boards saved here, but not in the gallery yet (saved offline, or before there was a server), to it. */
+async function uploadUnsent() {
+  for (const board of library.unsent.slice(0, UPLOADS_AT_START)) {
+    if (!(await upload(board))) return;
+  }
 }
 
 // --- Boards from elsewhere -----------------------------------------------------
 
 /** If the page was opened through a share link, put that board in play. */
-function openLinkedBoard() {
-  const code = takeLinkedCode();
-  if (code === null) return false;
+async function openLinkedBoard() {
+  const link = takeLink();
+  if (link === null) return;
   let board;
   try {
-    board = decodeBoard(code);
+    if (link.shortId) {
+      // A board in the gallery, by its short id.
+      if (!api) throw new Error("No gallery to ask");
+      board = library.addToGallery(decodeBoard(await api.get(link.shortId)), link.shortId);
+    } else {
+      board = library.keep(decodeBoard(link.code), "link");
+    }
   } catch {
     toast("Linket virker desværre ikke.");
-    return false;
+    return;
   }
-  board = library.keep(board, "link");
   switchTo(board);
   toast(board.author ? `${board.author} har sendt dig en tavle. Byg videre på den!` : "Du har fået en tavle. Byg videre på den!");
-  return true;
 }
 
 async function loadGallery() {
   try {
-    const response = await fetch(GALLERY_URL, { cache: "no-cache" });
-    if (!response.ok) throw new Error(response.statusText);
-    library.setGallery(await response.json());
+    if (api) {
+      library.setGallery(await api.list());
+    } else {
+      const response = await fetch(GALLERY_URL, { cache: "no-cache" });
+      if (!response.ok) throw new Error(response.statusText);
+      library.setGallery(await response.json());
+    }
   } catch {
     // Offline, or no gallery yet: everything else still works.
   }
   renderLists();
+  await uploadUnsent();
 }
 
 // --- The menu ------------------------------------------------------------------
@@ -183,14 +218,12 @@ function closeMenu() {
 function renderLists() {
   const options = { library, activeId: library.source.id, onUse: switchTo, onShare: (board) => share(board) };
 
-  // The original always closes the gallery, also when the gallery could not be fetched.
-  const gallery = [...library.gallery.filter((board) => board.id !== ORIGINAL.id), ORIGINAL];
-  renderCards($("#galleryList"), gallery.slice(0, galleryShown), options);
+  const gallery = library.listed;
+  renderCards($("#galleryList"), gallery.slice(0, galleryShown), { ...options, onForget: forget });
   $("#galleryMoreButton").hidden = gallery.length <= galleryShown;
-  $("#galleryEmpty").hidden = gallery.length > 1;
+  $("#galleryEmpty").hidden = gallery.length > 0;
 
-  renderCards($("#savedList"), library.saved, { ...options, onForget: forget });
-  $("#savedSection").hidden = library.saved.length === 0;
+  renderCards($("#originalsList"), [ORIGINAL], options);
 }
 
 function forget(board) {
@@ -212,6 +245,8 @@ function bindControls() {
   $("#removeButton").addEventListener("click", () => workspace.removeAll());
   $("#scatterButton").addEventListener("click", () => workspace.scatter());
   $("#sortButton").addEventListener("click", () => workspace.sortTable());
+  $("#spaceButton").addEventListener("click", () => workspace.space());
+  $("#newLineButton").addEventListener("click", () => workspace.newLine());
   holdToShowOriginal($("#originalButton"));
   $("#authorCancelButton").addEventListener("click", () => $("#authorDialog").close());
   $("#menuButton").addEventListener("click", () => ($("#menu").hidden ? openMenu() : closeMenu()));

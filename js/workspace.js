@@ -169,6 +169,16 @@ export class Workspace {
     });
   }
 
+  /** A space at the cursor, as the space bar types it: for a screen without a keyboard. */
+  space() {
+    this.handleKey({ key: " " });
+  }
+
+  /** The cursor to the start of the next line, as Enter does it: for a screen without a keyboard. */
+  newLine() {
+    this.handleKey({ key: "Enter" });
+  }
+
   /** Take back the last thing done with the letters. */
   undo() {
     this.#step(this.#undone, this.#redone);
@@ -448,6 +458,8 @@ export class Workspace {
       paintPiece(node, piece.ch, piece.flip, place);
       node.classList.toggle("on-board", piece.kind === "board");
       node.classList.toggle("on-table", piece.kind === "table");
+      // A letter of the previous message: while "vis original" is held, it is up on the board instead.
+      node.classList.toggle("of-message", piece.kind === "table" && !piece.tile.loose);
       node.classList.toggle("is-lifted", dragged);
     }
     for (const [key, node] of this.#nodes) {
@@ -506,6 +518,8 @@ export class Workspace {
         // Wait a moment: a second tap turns the letter instead. Then the letter
         // goes back where it was: off the board onto the table, or from the
         // table up where it was on the board (at the cursor, if it never was).
+        // On a phone, where tapping letters is how one writes, a letter from
+        // the table always goes to the cursor.
         clearTimeout(this.#pendingTap);
         this.#pendingTap = setTimeout(() => {
           const now = this.#find(key);
@@ -514,8 +528,11 @@ export class Workspace {
             if (now.kind === "board") return editor().remove(now.tile.id);
             const letter = now.tile;
             const piece = this.#pool.piece(key);
-            const back = letter.wasOnBoard ? editor().drop(piece, letter.x, letter.row, now.flip) : "full";
-            if (back !== "ok") this.#reportFull(editor().place(piece, now.flip));
+            const toCursor = !this.#zone().beside;
+            const back = letter.wasOnBoard && !toCursor ? editor().drop(piece, letter.x, letter.row, now.flip) : "full";
+            if (back === "ok") return;
+            if (toCursor) this.#cursorShown = true;
+            this.#reportFull(editor().place(piece, now.flip));
           });
         }, DOUBLE_TAP_MS);
       },

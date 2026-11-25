@@ -52,11 +52,10 @@ const UPSIDE_DOWN = { M: "W", W: "M", 6: "9", 9: "6", "'": ",", ",": "'", ">": "
 /** How a letter reads to a human, for titles and screen readers. */
 export const glyphReading = (ch, flip) => (flip && UPSIDE_DOWN[ch]) || glyphText(ch);
 
-/** When a letter has run out, the upside-down letter that can stand in for it. */
-export const STAND_IN = { M: "W", W: "M", 6: "9", 9: "6", ",": "'", "'": "," };
-
-// Keys that are not letters on the board, but can be made by turning one around.
-const TYPED_UPSIDE_DOWN = { "<": ">", ".": "'" };
+// The arrow is one piece: typed "<", it is the arrow turned around. Other
+// letters are only ever what they are when typed; turning a W into an M is for
+// whoever is at the board to think of.
+const TYPED_UPSIDE_DOWN = { "<": ">" };
 
 /** The letter a typed character asks for, or null if the board has no such letter. */
 export function glyphForKey(key) {

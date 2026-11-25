@@ -243,14 +243,15 @@ button {
   filter: drop-shadow(0 calc(6 * var(--u)) calc(6 * var(--u)) rgba(0, 0, 0, 0.4));
 }
 
-/* "vis original": the previous message takes the place of what is on the board. */
+/* "vis original": the previous message takes the place of what is on the board,
+   and its letters lying on the table go up there with it. */
 .original {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 
-.is-showing-original .pieces .piece.on-board {
+.is-showing-original .pieces .piece:is(.on-board, .of-message) {
   visibility: hidden;
 }
 
@@ -372,6 +373,11 @@ button {
   height: calc(25.84 * var(--px));
   justify-content: flex-start;
   padding-left: calc(10.3 * var(--px));
+}
+
+/* "ny linje" and "mellemrum" are for a phone, which has no keyboard. */
+.type-tools {
+  display: none;
 }
 
 /* Where js/workspace.js lays the letters on the table out. */
@@ -544,6 +550,20 @@ button {
 
   .sort-button {
     width: auto;
+    padding: 0 8px;
+  }
+
+  /* "ny linje" and "mellemrum", on the edge of the table across from them. */
+  .type-tools {
+    display: flex;
+    position: absolute;
+    right: calc(2 * var(--gutter));
+    top: calc(var(--table-top) - 9.5px);
+    z-index: 1;
+    gap: 6px;
+  }
+
+  .type-tools .pill {
     padding: 0 8px;
   }
 }
@@ -720,6 +740,13 @@ button {
   font-size: 11px;
 }
 
+.card-badge-quiet {
+  border: 1.5px solid var(--ink);
+  padding: 0 5px;
+  background: none;
+  color: var(--ink);
+}
+
 .card-actions {
   display: flex;
   flex-wrap: wrap;
@@ -806,14 +833,6 @@ button {
 
 .share-row input {
   flex: 1;
-}
-
-.share-submit {
-  display: grid;
-  justify-items: start;
-  gap: 6px;
-  border-top: 3px solid var(--ink);
-  padding-top: 12px;
 }
 
 .toast {

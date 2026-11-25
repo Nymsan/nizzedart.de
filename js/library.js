@@ -2,12 +2,13 @@
 // opened here (kept in localStorage), and the shared gallery.
 //
 // A board is `{ id, code, tiles, author, createdAt, parentId }` as decoded from
-// its share code. Saved boards are stored as their codes.
+// its share code, and `shortId` once it is in the shared gallery (its short
+// link). Saved boards are stored as their codes.
 
 import { messageText } from "./board.js";
 import { decodeBoard, encodeBoard } from "./codec.js";
 import { STORAGE_KEY } from "./config.js";
-import { importLegacyBoards } from "./legacy.js";
+import { forgetLegacyBoards, importLegacyBoards } from "./legacy.js";
 
 const MAX_SAVED = 200;
 
@@ -44,7 +45,7 @@ export const ORIGINAL = Object.freeze(
 );
 
 export class Library {
-  /** Boards saved ("mine") or opened from a link ("link") in this browser, newest first. */
+  /** Boards saved ("mine") or opened from a link ("link") in this browser and not in the gallery, newest first. */
   saved = [];
   /** Boards in the shared gallery, newest first. */
   gallery = [];
@@ -57,6 +58,20 @@ export class Library {
   constructor(storage) {
     this.#storage = storage;
     this.#load();
+    // What the first version of the site left behind goes, once it is carried over.
+    if (this.#stored() === null && this.saved.length > 0) this.save();
+    if (this.#stored() !== null) forgetLegacyBoards(storage);
+  }
+
+  /**
+   * The boards to list in the gallery, newest first: the shared gallery, and
+   * the boards only this browser knows about. Never the original, which has a
+   * list of its own.
+   */
+  get listed() {
+    return [...this.saved, ...this.gallery]
+      .filter((board) => board.id !== ORIGINAL.id)
+      .sort((a, b) => b.createdAt - a.createdAt);
   }
 
   find(id) {
@@ -91,18 +106,53 @@ export class Library {
     };
   }
 
-  /** Take in the gallery file: `{ boards: [{ code }] }`, oldest first. Unreadable boards are skipped. */
+  /**
+   * Take in the gallery: `{ boards: [{ code, id }] }`, oldest first, `id` being
+   * the short id of its link, if it has one. Unreadable boards are skipped. A
+   * board kept in this browser that is in the gallery now is kept there only,
+   * so it is not listed twice.
+   */
   setGallery(data) {
     const boards = new Map();
     for (const record of Array.isArray(data?.boards) ? data.boards : []) {
       try {
         const board = decodeBoard(record.code);
+        if (typeof record.id === "string") board.shortId = record.id;
         boards.set(board.id, board.id === ORIGINAL.id ? ORIGINAL : board);
       } catch {
         // Not a board this version can read.
       }
     }
     this.gallery = [...boards.values()].reverse();
+
+    const local = this.saved.filter((board) => !boards.has(board.id));
+    if (local.length < this.saved.length) {
+      this.saved = local;
+      this.save();
+    }
+  }
+
+  /**
+   * A board is in the shared gallery now, with the short id `shortId`: it is
+   * listed there, and no longer kept in this browser. Returns the board as listed.
+   */
+  addToGallery(board, shortId) {
+    let shared = this.gallery.find((known) => known.id === board.id);
+    if (!shared) {
+      const { origin, ...rest } = board;
+      shared = { ...rest, shortId };
+      this.gallery.unshift(shared);
+    }
+    shared.shortId ??= shortId;
+    this.saved = this.saved.filter((known) => known.id !== board.id);
+    if (this.source.id === board.id) this.source = shared;
+    this.save();
+    return shared;
+  }
+
+  /** The boards saved in this browser that are not in the shared gallery yet, oldest first. */
+  get unsent() {
+    return this.saved.filter((board) => board.origin === "mine").reverse();
   }
 
   save() {
@@ -118,10 +168,18 @@ export class Library {
     }
   }
 
+  #stored() {
+    try {
+      return this.#storage.getItem(STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
   #load() {
     let state = null;
     try {
-      state = JSON.parse(this.#storage.getItem(STORAGE_KEY));
+      state = JSON.parse(this.#stored());
     } catch {
       // Unreadable storage is treated as empty.
     }

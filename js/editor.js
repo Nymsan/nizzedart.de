@@ -1,8 +1,7 @@
 // Editing a board: a cursor to type at, and letters that come from a supply.
 //
 // A supply answers `find(ch)` with a piece `{ ch, src, flip }` or null, and is
-// told when a piece is taken or put back. `flip` is set when the piece is a
-// stand-in that has to be turned upside down to read as `ch`.
+// told when a piece is taken or put back.
 
 import {
   clamp,
@@ -13,7 +12,7 @@ import {
   tileRight,
   typingSlot,
 } from "./board.js";
-import { BOARD_W, LINE_STEP, STAND_IN, WORD_GAP, gapAfter } from "./glyphs.js";
+import { BOARD_W, LINE_STEP, WORD_GAP, gapAfter } from "./glyphs.js";
 
 /**
  * The letters of the previous message. Each is either on the board ("used",
@@ -45,10 +44,8 @@ export class Pool {
   }
 
   find(ch) {
-    const exact = this.#firstUnused(ch);
-    if (exact) return { ch, src: exact.id, flip: false };
-    const standIn = STAND_IN[ch] && this.#firstUnused(STAND_IN[ch]);
-    return standIn ? { ch: standIn.ch, src: standIn.id, flip: true } : null;
+    const tile = this.#firstUnused(ch);
+    return tile ? { ch, src: tile.id, flip: false } : null;
   }
 
   /** The piece for one particular letter, or null if it is on the board. */

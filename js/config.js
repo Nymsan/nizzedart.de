@@ -1,7 +1,12 @@
-/** The GitHub repository that hosts the site. Boards are submitted to the gallery as issues here. */
-export const GITHUB_REPO = "Nymsan/nizzedart.de";
+/**
+ * The gallery's server (worker/, see worker/README.md), e.g.
+ * "https://nizzedart.<your-name>.workers.dev". Empty until it is set up: the
+ * gallery is then read from GALLERY_URL, and boards saved here wait to be
+ * uploaded until it is.
+ */
+export const API_URL = "";
 
-/** The shared gallery: a JSON file in the repository, updated by .github/workflows/add-board.yml. */
+/** The gallery as it was before the server: a file in the repository. */
 export const GALLERY_URL = "data/boards.json";
 
 export const STORAGE_KEY = "nizzedart.v1";
