@@ -15,9 +15,17 @@ import { Editor, Pool } from "./editor.js";
 import { BOARD_H, EDGE, FELT_W, GROOVE, glyphForKey, glyphText, glyphWidth, sortKey } from "./glyphs.js";
 
 /** How the letters are laid out on the table, in felt units from the corner of `.table-zone`. Taken from the design. */
-const SORTED = { left: 40, top: 96, topNarrow: 50, width: 572, gap: 17.5, line: 69 };
+const SORTED = { left: 40, top: 96, width: 572, gap: 17.5, line: 69 };
+/** The same, under the board (the phone design): the rows in the middle of the table, the first row this far down. */
+const SORTED_UNDER = { top: 130, width: 670, gap: 14.5, line: 65 };
 const SCATTER = { x: 321, y: 442, rx: 251, ry: 341, count: 61, room: 62 };
-const MARGIN = 12; // how close to the edge of the page a letter may lie
+/** How far apart letters moved out of the way lie, how far they look for room, and in what steps, in felt units. */
+const ROOM = { gap: 4, reach: 900, step: 14 };
+/** Under the board, the lines of letters taken off it: where the first goes, and how far apart, in felt units. */
+const STRAY_LINES = { top: 80, step: 66 };
+const MARGIN = 12;
+/** Under the board, how far the edge of the table is from the bottom of the page, in pixels (styles.css: --gutter). */
+const TABLE_EDGE_PX = 18; // how close to the edge of the page a letter may lie
 const UNDO_STEPS = 100;
 
 const plain = ({ ch, x, row, flip, loose }) => ({ ch, x, row, flip, loose });
@@ -98,6 +106,14 @@ export class Workspace {
     return this.#composer.tiles.length === 0;
   }
 
+  /** Whether the board says what it said when it was put in play, letter for letter. */
+  get isAsOriginal() {
+    const key = ({ ch, x, row, flip }) => `${ch} ${x} ${row} ${Boolean(flip)}`;
+    const now = this.#composer.tiles.map(key).sort();
+    const then = this.#source.filter((tile) => !tile.loose).map(key).sort();
+    return now.length === then.length && now.every((item, i) => item === then[i]);
+  }
+
   get showingOriginal() {
     return this.#showingOriginal;
   }
@@ -122,7 +138,11 @@ export class Workspace {
       this.#notify("Tavlen er allerede tom");
       return;
     }
-    this.#record(() => this.#composer.clear());
+    this.#record(() => {
+      // All of them keep their words, also the letters that came from the table.
+      for (const tile of this.#composer.tiles) this.#pool.tile(tile.src).lastTable = null;
+      this.#composer.clear();
+    });
   }
 
   /** Throw the letters on the table about in a heap. */
@@ -325,19 +345,64 @@ export class Workspace {
   /**
    * Letters that have just come off the board go on the table where they were
    * on the board, moved over beside it (or under it), as if the board had been
-   * tipped out there.
+   * tipped out there. Under the board, where the table is not as tall as the
+   * board, the lines close up one under the other. The letters already on the
+   * table that they would land on move out of the way.
    */
   #layStrays() {
     const strays = this.#pool.leftovers.filter((tile) => !tile.table);
     if (strays.length === 0) return;
     const zone = this.#zone();
-    const fit = Math.min(1, zone.w / FELT_W, zone.h / BOARD_H);
     const random = seededRandom(this.#seed + strays.length);
-    const jitter = () => (random() - 0.5) * 8;
-    for (const tile of strays) {
-      const at = onBoard(tile);
-      this.#pool.lay(tile.id, { x: zone.x + at.x * fit + jitter(), y: zone.y + at.y * fit + jitter(), flip: tile.flip });
+    const jitter = () => (random() - 0.5) * 3;
+    if (zone.beside) {
+      const fit = Math.min(1, zone.w / FELT_W, zone.h / BOARD_H);
+      for (const tile of strays) {
+        const at = onBoard(tile);
+        this.#pool.lay(tile.id, { x: zone.x + at.x * fit + jitter(), y: zone.y + at.y * fit + jitter(), flip: tile.flip });
+      }
+    } else {
+      const fit = Math.min(1, zone.w / FELT_W);
+      const left = zone.x + (zone.w - FELT_W * fit) / 2;
+      const rows = [...new Set(strays.map((tile) => tile.row))].sort((a, b) => a - b);
+      for (const tile of strays) {
+        const at = onBoard(tile);
+        const y = zone.y + STRAY_LINES.top + rows.indexOf(tile.row) * STRAY_LINES.step;
+        this.#pool.lay(tile.id, { x: left + at.x * fit + jitter(), y: y + jitter() / 2, flip: tile.flip });
+      }
     }
+
+    const bounds = this.#bounds();
+    const area = {
+      left: Math.max(zone.x, bounds.left),
+      top: Math.max(zone.y, bounds.top),
+      right: Math.min(zone.x + zone.w, bounds.right),
+      bottom: Math.min(zone.y + zone.h, bounds.bottom),
+    };
+    const others = this.#pool.leftovers.filter((tile) => tile.table && !strays.includes(tile));
+    const places = madeRoom(
+      strays.map((tile) => ({ ch: tile.ch, ...tile.table })),
+      others.map((tile) => ({ ch: tile.ch, ...tile.table })),
+      area,
+      // Under the board, the page can grow longer to make room.
+      { spill: !zone.beside },
+    );
+    others.forEach((tile, i) => this.#pool.lay(tile.id, { ...places[i], flip: tile.table.flip }));
+  }
+
+  /** Under the board, the page is made long enough to hold every letter on the table (styles.css: --table-end). */
+  #growTable() {
+    const zone = this.#zone();
+    const lowest = Math.max(...this.#pool.leftovers.filter((tile) => tile.table).map((tile) => tile.table.y));
+    if (zone.beside || !Number.isFinite(lowest)) {
+      this.#stage.style.removeProperty("--table-end");
+      return;
+    }
+    const felt = this.#felt.getBoundingClientRect();
+    const scale = felt.width > 0 ? felt.width / FELT_W : 1;
+    // The letter, and the edge of the table under it.
+    const end = felt.top - this.#stage.getBoundingClientRect().top + (lowest + 32 + MARGIN) * scale + TABLE_EDGE_PX;
+    this.#stage.style.setProperty("--table-end", `${Math.ceil(end)}px`);
   }
 
   // --- Drawing ---------------------------------------------------------------
@@ -361,6 +426,7 @@ export class Workspace {
   #render({ touched = true } = {}) {
     if (touched) this.#touched = true;
     this.#layStrays();
+    this.#growTable();
     const bounds = this.#bounds();
     const seen = new Set();
     for (const piece of this.#pieces()) {
@@ -541,20 +607,21 @@ function sameLetters(a, b) {
 /** Where letters `chars` go when laid out in rows by "sorter a-z", in the order they are given in. */
 export function sortedPlaces(chars, zone) {
   const order = chars.map((_, i) => i).sort((a, b) => sortKey(chars[a]) - sortKey(chars[b]) || a - b);
-  const left = zone.x + SORTED.left;
-  // Beside the board, as wide as in the design; under it, as wide as the table.
-  const width = Math.max(200, Math.min(zone.beside ? SORTED.width : Infinity, zone.w - 2 * SORTED.left));
+  const width = Math.max(200, Math.min(zone.beside ? SORTED.width : SORTED_UNDER.width, zone.w - 2 * SORTED.left));
+  const left = zone.beside ? zone.x + SORTED.left : zone.x + (zone.w - width) / 2;
+  const line = zone.beside ? SORTED.line : SORTED_UNDER.line;
+  const gap = zone.beside ? SORTED.gap : SORTED_UNDER.gap;
   let x = left;
-  let y = zone.y + (zone.beside ? SORTED.top : SORTED.topNarrow);
+  let y = zone.y + (zone.beside ? SORTED.top : SORTED_UNDER.top);
   const places = [];
   for (const i of order) {
     const w = glyphWidth(chars[i]);
     if (x > left && x + w > left + width) {
       x = left;
-      y += SORTED.line;
+      y += line;
     }
     places[i] = { x, y, flip: false };
-    x += w + SORTED.gap;
+    x += w + gap;
   }
   return places;
 }
@@ -584,6 +651,51 @@ export function scatteredPlaces(chars, zone, random = Math.random) {
     middles.push(best);
     return { x: best.x - glyphWidth(ch) / 2, y: best.y, flip: false };
   });
+}
+
+/**
+ * Where the letters `others` on the table go when the letters `fixed` are put
+ * down among them: each one that `fixed` would cover moves to the nearest
+ * place in `area` where it covers no other letter. The rest stay where they
+ * are, also on top of each other. Places are `{ ch, x, y }`, x at the left
+ * edge and y in the middle, in felt units; `area` is how far the letters may
+ * go, as { left, top, right, bottom }. With `spill`, a letter that finds no
+ * room there may go further down.
+ */
+export function madeRoom(fixed, others, area, { spill = false } = {}) {
+  const box = ({ ch, x, y }) => ({ left: x - ROOM.gap, right: x + glyphWidth(ch) + ROOM.gap, top: y - 30, bottom: y + 30 });
+  const hits = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  const covered = fixed.map(box);
+  const free = (place, taken) => {
+    const at = box(place);
+    return !taken.some((other) => hits(at, other));
+  };
+
+  const places = others.map(({ ch, x, y }) => ({ ch, x, y }));
+  const moving = places.filter((place) => !free(place, covered));
+  const staying = places.filter((place) => !moving.includes(place));
+  const taken = [...covered, ...staying.map(box)];
+  const nearestRoom = (place, bottom, reach) => {
+    const w = glyphWidth(place.ch);
+    const fits = ({ x, y }) => x >= area.left && x + w <= area.right && y - 30 >= area.top && y + 30 <= bottom;
+    for (let r = ROOM.step; r <= reach; r += ROOM.step) {
+      const count = Math.max(8, Math.ceil((2 * Math.PI * r) / ROOM.step));
+      for (let k = 0; k < count; k += 1) {
+        const angle = (2 * Math.PI * k) / count;
+        const at = { ch: place.ch, x: place.x + r * Math.cos(angle), y: place.y + r * Math.sin(angle) };
+        if (fits(at) && free(at, taken)) return at;
+      }
+    }
+    return null;
+  };
+  for (const place of moving) {
+    let found = nearestRoom(place, area.bottom, ROOM.reach);
+    if (!found && spill) found = nearestRoom({ ...place, y: Math.max(place.y, area.bottom - 30) }, Infinity, ROOM.reach * 3);
+    // No room anywhere: it stays where it is, under the letters put down.
+    if (found) Object.assign(place, { x: found.x, y: found.y });
+    taken.push(box(place));
+  }
+  return places.map(({ x, y }) => ({ x, y }));
 }
 
 /** A deterministic stand-in for Math.random, so a board's leftovers lie the same way every time. */

@@ -28,7 +28,7 @@ import {
 } from "../js/glyphs.js";
 import { Library, ORIGINAL } from "../js/library.js";
 import { gallerySubmitUrl } from "../js/share.js";
-import { scatteredPlaces, seededRandom, sortedPlaces } from "../js/workspace.js";
+import { madeRoom, scatteredPlaces, seededRandom, sortedPlaces } from "../js/workspace.js";
 
 const params = new URLSearchParams(location.search);
 const tests = [];
@@ -339,6 +339,28 @@ test("table: the dice throws the letters in a heap, apart, the right way up, and
   const middles = places.map((p, i) => ({ x: p.x + glyphWidth(chars[i]) / 2, y: p.y }));
   const closest = Math.min(...middles.flatMap((a, i) => middles.slice(i + 1).map((b) => Math.hypot(a.x - b.x, a.y - b.y))));
   assert(closest > 25, `not on top of each other (closest ${closest.toFixed(0)})`);
+});
+
+test("table: letters put down on the table push away the ones they would cover, and leave the rest be", () => {
+  const word = [{ ch: "N", x: 800, y: 100 }, { ch: "E", x: 850, y: 100 }];
+  const others = [
+    { ch: "A", x: 805, y: 105 }, // under the N
+    { ch: "B", x: 852, y: 90 }, // under the E
+    { ch: "C", x: 1100, y: 500 }, // far off
+    { ch: "D", x: 1102, y: 502 }, // on top of the C, and stays there
+  ];
+  const area = { left: 740, top: 16, right: 1480, bottom: 1016 };
+  const places = madeRoom(word, others, area);
+  const box = (ch, p) => ({ l: p.x, r: p.x + glyphWidth(ch), t: p.y - 30, b: p.y + 30 });
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const boxes = places.map((p, i) => box(others[i].ch, p));
+  for (const i of [0, 1]) {
+    assert(!word.some((w) => hit(boxes[i], box(w.ch, w))), `${others[i].ch} is out from under the word`);
+    assert(!boxes.some((other, j) => j !== i && hit(boxes[i], other)), `${others[i].ch} is not put on another letter`);
+    assert(Math.hypot(places[i].x - others[i].x, places[i].y - others[i].y) < 120, `${others[i].ch} moved only a little`);
+    assert(places[i].x >= area.left && places[i].y - 30 >= area.top, "still on the table");
+  }
+  equal(places.slice(2), [{ x: 1100, y: 500 }, { x: 1102, y: 502 }], "the others stay, also on top of each other");
 });
 
 // --- Editing -------------------------------------------------------------------------
@@ -765,6 +787,31 @@ test("page: the arrow takes every letter off the board, onto the table beside it
   assert(Math.abs(gap(l2, e2) - gap(...before)) < 10, "still next to each other");
   $("#removeButton").click();
   assert($("#toast").textContent.includes("allerede tom"));
+});
+
+test("page: letters taken off the board keep their words, and the letters on the table make room for them", async () => {
+  await openApp();
+  $("#removeButton").click();
+  $("#scatterButton").click();
+  typeText("nej");
+  const word = onBoard();
+  const before = word.map(place);
+  const others = onTable();
+  const lying = others.map(place);
+
+  $("#removeButton").click();
+  const after = word.map(place);
+  assert(word.every((node) => node.classList.contains("on-table")), "the word is on the table");
+  assert(Math.abs(after[1][0] - after[0][0] - (before[1][0] - before[0][0])) < 10 && Math.abs(after[1][1] - after[0][1]) < 10, "and still reads as it did");
+  const box = (node) => {
+    const [x, y] = place(node);
+    return { l: x, r: x + Number(node.style.getPropertyValue("--w")), t: y - 30, b: y + 30 };
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  assert(!others.some((node) => word.some((letter) => hit(box(node), box(letter)))), "nothing lies on top of it");
+
+  press("z", { ctrlKey: true });
+  equal(others.map(place), lying, "undo puts the others back");
 });
 
 test("page: the dice throws the letters about on the table, and sorter a-z lays them out in order", async () => {

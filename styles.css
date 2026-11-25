@@ -283,6 +283,10 @@ button {
   padding: 0 0 0 calc(12.9 * var(--px));
 }
 
+.remove-label {
+  display: none;
+}
+
 .remove-button svg {
   display: block;
   width: calc(17.26 * var(--px));
@@ -380,21 +384,24 @@ button {
   pointer-events: none;
 }
 
-/* On a narrow screen, standing up (a phone), the table is under the board.
-   There is no design for this yet. The board is made small enough that the
-   board, its buttons and the table all fit on the screen (js/main.js), so a
-   letter can be moved from the table up onto the board without scrolling. The
-   buttons keep a size a finger can hit, whatever size the board is. */
+/* On a narrow screen, standing up (a phone): the design for a phone, drawn
+   for a screen 402 pixels wide. The sizes here are pixels, but for the board,
+   which js/main.js makes as large as leaves the top of the table on the
+   screen. Under the board are the buttons that do something now: "ryd board"
+   while the board says what it did, "vis original" and who made it once it
+   is empty, and all of them in between. The table is a box of its own, with
+   the dice and "sorter a-z" on its edge. */
 @media (max-aspect-ratio: 1/1) and (max-width: 999.98px) {
   .stage {
-    --frame-top: 58px;
-    --gutter: 12px;
+    --frame-top: 74px;
+    --gutter: 18px;
     --board-left: calc(50% - 184 * var(--px));
     --board-right: calc(50% + 184 * var(--px));
     --board-bottom: calc(var(--frame-top) + 517 * var(--px));
-    --row-1: calc(var(--board-bottom) + 10px);
-    --row-2: calc(var(--row-1) + 46px);
-    min-height: max(100dvh, var(--row-2) + 36px + 150px);
+    --table-top: calc(var(--board-bottom) + 52px);
+    --tab: #bb966c;
+    /* Longer, if letters lie further down the table (js/workspace.js). */
+    min-height: max(100dvh, var(--table-top) + 150px, var(--table-end, 0px));
     touch-action: manipulation;
   }
 
@@ -403,95 +410,147 @@ button {
   }
 
   .menu-button {
-    left: 16px;
-    top: 18px;
+    left: 26px;
+    top: 22px;
+    width: 25px;
+    height: 17.7px;
   }
 
   .logo {
-    top: 15px;
-    width: min(196px, 100vw - 150px);
+    top: 19.5px;
+    width: min(145px, 100vw - 220px);
   }
 
-  .play .pill {
-    height: 36px;
-    min-height: 36px;
-    border-width: 2px;
-    border-radius: 12px;
-    font-size: 13px;
+  .play .pill,
+  .save-tab {
+    height: 21px;
+    min-height: 21px;
+    border: 2px solid var(--ink);
+    border-radius: 11px;
+    background: var(--tan);
+    color: var(--ink);
+    font-size: 8px;
     touch-action: manipulation;
   }
 
-  /* Under the board: who made it, and "gem og del!". */
-  .byline {
-    left: var(--gutter);
-    top: var(--row-1);
-    right: calc(100% - var(--board-right) + 152px);
-    height: 36px;
-    max-width: none;
-    display: flex;
-    align-items: center;
-    font-size: 12px;
-    line-height: 14px;
-    white-space: normal;
-    overflow-wrap: anywhere;
+  .play .pill.is-held {
+    background: var(--ink);
+    color: var(--tan);
   }
 
+  /* "gem og del", up in the corner. */
   .save-tab {
-    left: calc(var(--board-right) - 152px);
-    top: calc(var(--board-bottom) - 6px);
-    width: 140px;
-    height: 52px;
-    border-radius: 0 0 18px 18px;
-    padding-top: 6px;
-    font-size: 17px;
-  }
-
-  /* Then a row of buttons: for the board on the left, for the table on the right. */
-  .remove-button {
-    left: var(--gutter);
-    top: var(--row-2);
-    width: 52px;
-    justify-content: center;
-    padding: 0;
-  }
-
-  .original-button {
-    left: calc(var(--gutter) + 60px);
-    top: var(--row-2);
+    left: auto;
+    right: var(--gutter);
+    top: 19.5px;
     width: auto;
-    padding: 0 14px;
+    height: 28px;
+    border-radius: 14px;
+    padding: 0 10px;
+    font-size: 10px;
+  }
+
+  .save-tab:hover {
+    background: #cfa77b;
+  }
+
+  .save-mark {
+    display: none;
+  }
+
+  /* "ryd board": under the middle of the board. */
+  .remove-button {
+    left: 50%;
+    top: calc(var(--board-bottom) + 15.7px);
+    width: auto;
+    gap: 7px;
+    padding: 0 7px 0 8px;
+    translate: -50% 0;
+  }
+
+  .remove-label {
+    display: inline;
   }
 
   .remove-button svg {
-    width: 22px;
-    height: 10.2px;
+    width: 16px;
+    height: 7.4px;
+  }
+
+  /* "vis original": a tab hanging from under the board, and who made it beside it. */
+  .original-button.pill {
+    left: calc(50% - 61px);
+    top: var(--board-bottom);
+    width: 60px;
+    height: 22px;
+    border: 0;
+    border-radius: 0 0 10px 10px;
+    padding: 0;
+    background: var(--tab);
+  }
+
+  .byline {
+    left: calc(50% + 5px);
+    top: var(--board-bottom);
+    height: 22px;
+    max-width: calc(var(--board-right) - 50% - 5px);
+    font-size: 8px;
+    line-height: 22px;
+  }
+
+  .is-board-as-original:not(.is-board-empty) :is(.original-button, .byline),
+  .is-board-empty .remove-button {
+    display: none;
+  }
+
+  /* With both, the tab goes to the left, and "ryd board" to the right. */
+  .stage:not(.is-board-as-original, .is-board-empty) .original-button {
+    left: calc(var(--board-left) + 10px);
+  }
+
+  .stage:not(.is-board-as-original, .is-board-empty) .byline {
+    left: calc(var(--board-left) + 76px);
+    max-width: calc(var(--board-right) - var(--board-left) - 76px - 88px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .stage:not(.is-board-as-original, .is-board-empty) .remove-button {
+    left: auto;
+    right: calc(100% - var(--board-right));
+    translate: none;
+  }
+
+  /* The table, with its tools on its edge. */
+  .table-zone {
+    left: var(--gutter);
+    right: var(--gutter);
+    top: var(--table-top);
+    bottom: var(--gutter);
+    border: 2px solid var(--ink);
+    border-radius: 17px;
   }
 
   .table-tools {
-    right: var(--gutter);
-    top: var(--row-2);
-    gap: 8px;
+    left: calc(2 * var(--gutter));
+    right: auto;
+    top: calc(var(--table-top) - 9.5px);
+    z-index: 1;
+    gap: 6px;
   }
 
   .scatter-button {
-    width: 52px;
+    width: 31px;
   }
 
   .scatter-button img {
-    width: 19px;
-    height: 20px;
+    width: 11px;
+    height: 11.6px;
   }
 
   .sort-button {
     width: auto;
-    padding: 0 16px;
-  }
-
-  .table-zone {
-    left: var(--gutter);
-    right: var(--gutter);
-    top: calc(var(--row-2) + 44px);
-    bottom: var(--gutter);
+    padding: 0 8px;
   }
 }
 

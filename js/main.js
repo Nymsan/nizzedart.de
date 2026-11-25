@@ -16,8 +16,8 @@ const GALLERY_PAGE = 12;
 const DESIGN = { width: 1280, height: 730, frame: 368, board: 517 };
 /** On a narrow screen, standing up, the table goes under the board (keep in step with styles.css). */
 const NARROW = window.matchMedia("(max-aspect-ratio: 1/1) and (max-width: 999.98px)");
-/** In pixels: the header above the board, the two rows of buttons under it, the least room for the table, the margin. */
-const NARROW_LAYOUT = { above: 58, below: 92, table: 150, gutter: 12 };
+/** In pixels, from the design for a phone: above the board, from the board to the table, the least of the table to see, the margin. */
+const NARROW_LAYOUT = { above: 74, below: 52, table: 150, gutter: 18 };
 
 const library = new Library(browserStorage());
 const workspace = new Workspace({
@@ -69,7 +69,7 @@ function narrowScale(width, height) {
   // when the phone is turned, or the window is made a quite different size.
   if (narrowSize && narrowSize.width === width && Math.abs(narrowSize.height - height) < 160) return null;
   narrowSize = { width, height };
-  const table = Math.max(NARROW_LAYOUT.table, height * 0.22);
+  const table = Math.max(NARROW_LAYOUT.table, height * 0.26);
   const tall = (height - NARROW_LAYOUT.above - NARROW_LAYOUT.below - table) / DESIGN.board;
   return Math.max(Math.min((width - 2 * NARROW_LAYOUT.gutter) / DESIGN.frame, tall, 1.4), 0.6);
 }
@@ -100,6 +100,9 @@ function switchTo(board) {
 
 function onWorkspaceChange() {
   $("#originalButton").classList.toggle("is-held", workspace.showingOriginal);
+  // On a phone, the buttons under the board are the ones that do something now (styles.css).
+  $("#stage").classList.toggle("is-board-empty", workspace.isEmpty);
+  $("#stage").classList.toggle("is-board-as-original", workspace.isAsOriginal);
 }
 
 /** Save what is on the board as a new board, and offer to pass it on. */
