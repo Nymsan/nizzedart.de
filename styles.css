@@ -477,9 +477,10 @@ button {
     height: 7.4px;
   }
 
-  /* "vis original": a tab hanging from under the board, and who made it beside it. */
+  /* "vis original": a tab hanging from under the board, and who made it beside
+     it, on the left, so they stay put when "ryd board" comes and goes. */
   .original-button.pill {
-    left: calc(50% - 61px);
+    left: calc(var(--board-left) + 10px);
     top: var(--board-bottom);
     width: 60px;
     height: 22px;
@@ -490,10 +491,10 @@ button {
   }
 
   .byline {
-    left: calc(50% + 5px);
+    left: calc(var(--board-left) + 76px);
     top: var(--board-bottom);
     height: 22px;
-    max-width: calc(var(--board-right) - 50% - 5px);
+    max-width: calc(var(--board-right) - var(--board-left) - 76px);
     font-size: 8px;
     line-height: 22px;
   }
@@ -503,16 +504,9 @@ button {
     display: none;
   }
 
-  /* With both, the tab goes to the left, and "ryd board" to the right. */
-  .stage:not(.is-board-as-original, .is-board-empty) .original-button {
-    left: calc(var(--board-left) + 10px);
-  }
-
+  /* With both, "ryd board" goes to the right. */
   .stage:not(.is-board-as-original, .is-board-empty) .byline {
-    left: calc(var(--board-left) + 76px);
     max-width: calc(var(--board-right) - var(--board-left) - 76px - 88px);
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .stage:not(.is-board-as-original, .is-board-empty) .remove-button {
