@@ -376,7 +376,7 @@ button {
   padding-left: calc(10.3 * var(--px));
 }
 
-/* "ny linje", "mellemrum" and "slet" are for a phone, which has no keyboard. */
+/* "vend", "ny linje", "mellemrum" and "slet" are for a phone, which has no keyboard. */
 .type-tools {
   display: none;
 }
@@ -554,11 +554,11 @@ button {
     padding: 0 8px;
   }
 
-  /* "ny linje", "mellemrum" and "slet", on the edge of the table across from them. */
+  /* "vend", "ny linje", "mellemrum" and "slet", on the edge of the table across from them. */
   .type-tools {
     display: flex;
     position: absolute;
-    right: calc(2 * var(--gutter));
+    right: calc(var(--gutter) + 10px);
     top: calc(var(--table-top) - 9.5px);
     z-index: 1;
     gap: 6px;
@@ -566,6 +566,12 @@ button {
 
   .type-tools .pill {
     padding: 0 8px;
+  }
+
+  /* "vend" stays pressed until it is pressed again. */
+  .type-tools .pill[aria-pressed="true"] {
+    background: var(--ink);
+    color: var(--tan);
   }
 }
 

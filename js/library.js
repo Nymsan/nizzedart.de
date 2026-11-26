@@ -51,7 +51,7 @@ export class Library {
   gallery = [];
   /** The name last used when saving. */
   author = "";
-  /** The board whose letters are in play. */
+  /** The board whose letters are in play. Not remembered: the site opens on the original. */
   source = ORIGINAL;
   #storage;
 
@@ -158,7 +158,6 @@ export class Library {
   save() {
     const state = {
       boards: this.saved.map(({ code, origin, title }) => ({ code, origin, title })),
-      source: this.source.code,
       author: this.author,
     };
     try {
@@ -201,11 +200,5 @@ export class Library {
     }
 
     this.author = typeof state.author === "string" ? state.author : "";
-    try {
-      const source = decodeBoard(state.source);
-      this.source = this.find(source.id) ?? source;
-    } catch {
-      // No usable source: start from the original.
-    }
   }
 }

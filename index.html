@@ -59,6 +59,7 @@
       </div>
       <!-- On a phone, which has no keyboard to type with. -->
       <div class="type-tools">
+        <button id="turnButton" class="pill pill-text" type="button" aria-pressed="false" title="Bogstaverne kommer op på hovedet">vend</button>
         <button id="newLineButton" class="pill pill-text" type="button">ny linje</button>
         <button id="spaceButton" class="pill pill-text" type="button">mellemrum</button>
         <button id="backspaceButton" class="pill pill-text" type="button">slet</button>
@@ -74,16 +75,16 @@
       <button id="menuCloseButton" class="pill pill-text" type="button">luk</button>
     </div>
 
+    <details id="originalsSection" class="menu-section" open>
+      <summary>originale tavler</summary>
+      <div id="originalsList" class="cards"></div>
+    </details>
+
     <details id="gallerySection" class="menu-section" open>
       <summary>galleri</summary>
       <p id="galleryEmpty" class="menu-note">Her er ingen tavler endnu. Gem din egen, så kommer den med.</p>
       <div id="galleryList" class="cards"></div>
       <button id="galleryMoreButton" class="pill pill-text" type="button" hidden>vis flere</button>
-    </details>
-
-    <details id="originalsSection" class="menu-section">
-      <summary>originale tavler</summary>
-      <div id="originalsList" class="cards"></div>
     </details>
   </aside>
 

@@ -30,7 +30,7 @@ import { Library, ORIGINAL } from "../js/library.js";
 import { readLink, shareUrl } from "../js/share.js";
 import { galleryApi } from "../js/api.js";
 import { handle } from "../worker/src/app.js";
-import { madeRoom, scatteredPlaces, seededRandom, sortedPlaces } from "../js/workspace.js";
+import { madeRoom, scatteredPlaces, seededRandom, sortedPlaces, spreadOut } from "../js/workspace.js";
 
 const params = new URLSearchParams(location.search);
 const tests = [];
@@ -373,6 +373,22 @@ test("table: letters put down on the table push away the ones they would cover, 
   equal(places.slice(2), [{ x: 1100, y: 500 }, { x: 1102, y: 502 }], "the others stay, also on top of each other");
 });
 
+test("table: letters moved to a table of another size go inside it, and apart", () => {
+  const area = { left: 0, top: 0, right: 300, bottom: 200 };
+  const places = spreadOut(
+    [
+      { ch: "A", x: 50, y: 50 },
+      { ch: "B", x: 52, y: 52 }, // on the A
+      { ch: "C", x: 900, y: 900 }, // off the table
+    ],
+    area,
+  );
+  const boxes = places.map((p, i) => ({ l: p.x, r: p.x + glyphWidth("ABC"[i]), t: p.y - 30, b: p.y + 30 }));
+  equal(places[0], { x: 50, y: 50 }, "the first stays");
+  assert(boxes[1].l >= boxes[0].r || boxes[1].r <= boxes[0].l || boxes[1].t >= boxes[0].b || boxes[1].b <= boxes[0].t, "the B off the A");
+  assert(boxes.every((b) => b.l >= 0 && b.r <= 300 && b.t >= 0 && b.b <= 200), "all on the table");
+});
+
 // --- Editing -------------------------------------------------------------------------
 
 function newEditor() {
@@ -588,17 +604,17 @@ test("library: a forgotten board can be put back where it was", () => {
   equal(new Library(storage).saved.length, 3);
 });
 
-test("library: remembers the board in play and the name, but not where its letters lie", () => {
+test("library: remembers the name, but not the board in play, nor where its letters lie", () => {
   const storage = fakeStorage();
   const library = new Library(storage);
-  const board = someBoard();
-  library.source = board; // not kept: it could be a board from the gallery
+  library.source = someBoard();
   library.author = "Bo";
   library.save();
-  assert(!("draft" in JSON.parse(storage.getItem(STORAGE_KEY))), "where the letters lie is not saved");
+  const stored = JSON.parse(storage.getItem(STORAGE_KEY));
+  assert(!("draft" in stored) && !("source" in stored), "neither is saved");
 
   const again = new Library(storage);
-  equal([again.source.id, again.author], [board.id, "Bo"]);
+  equal([again.source.id, again.author], [ORIGINAL.id, "Bo"]);
 });
 
 test("library: survives broken storage", () => {
@@ -694,7 +710,7 @@ test("library: carries over boards saved by the first version of the site", () =
   equal(child.tiles, [tile("H", 16, 2), tile("I", 58, 2, true)]);
   equal(parent.tiles, [tile(">", 323, 30), tile(">", 0, 5)], "arrows become one piece; wide boards are squeezed");
   equal(child.createdAt, Date.parse("2026-04-02T10:00:00.000Z"));
-  equal([library.source.id, library.author], [child.id, "Bo"]);
+  equal([library.source.id, library.author], [ORIGINAL.id, "Bo"], "the name is carried over; the site opens on the original");
 });
 
 test("library: a board that goes into the gallery is listed there, once, and no longer kept here", () => {
@@ -1194,6 +1210,79 @@ test("page: the space, new line and delete buttons (for a phone) type at the cur
   assert($("#felt .cursor"), "the cursor shows where the next letter goes");
 });
 
+/** Run `steps` with the page in a phone-sized window, and put the window back after. */
+async function asPhone(steps) {
+  frame.style.width = "400px";
+  frame.style.height = "800px";
+  try {
+    await until(() => win().innerWidth === 400 && win().matchMedia("(max-aspect-ratio: 1/1)").matches, "a phone-sized window");
+    // A headless browser may be slow to tell the page its window changed size.
+    win().dispatchEvent(new (win().Event)("resize"));
+    await steps();
+  } finally {
+    frame.style.width = "";
+    frame.style.height = "";
+    await until(() => win().innerWidth > 1000, "the window back to its size");
+    win().dispatchEvent(new (win().Event)("resize"));
+  }
+}
+
+/** Whether every letter on the table lies inside the table. */
+function allOnTable() {
+  const zone = $("#tableZone").getBoundingClientRect();
+  return onTable().every((node) => {
+    const rect = node.getBoundingClientRect();
+    return rect.left >= zone.left - 1 && rect.right <= zone.right + 1 && rect.top >= zone.top - 1;
+  });
+}
+
+test("page: when the window changes size, letters sorted on the table are sorted again on the new table", async () => {
+  await openApp();
+  $("#removeButton").click();
+  $("#sortButton").click();
+  const order = () => onTable()
+      .map((node) => [node.dataset.ch, ...place(node)])
+      .sort((a, b) => a[2] - b[2] || a[1] - b[1])
+      .map(([ch]) => ch)
+      .join("");
+  const sorted = order();
+  await asPhone(async () => {
+    await until(() => allOnTable(), "the letters on the table under the board");
+    equal(order(), sorted, "in rows, in order");
+  });
+  await until(() => allOnTable(), "the letters on the table beside the board again");
+  equal(order(), sorted);
+});
+
+test("page: when the window changes size, letters lying about on the table stay on it, apart", async () => {
+  await openApp();
+  $("#removeButton").click();
+  $("#scatterButton").click();
+  await asPhone(async () => {
+    await until(() => allOnTable(), "the letters on the table under the board");
+    const boxes = onTable().map((node) => node.getBoundingClientRect());
+    const onTop = boxes.filter((a, i) => boxes.some((b, j) => j > i && Math.abs(a.left - b.left) < 3 && Math.abs(a.top - b.top) < 3));
+    equal(onTop.length, 0, "none right on top of another");
+  });
+});
+
+test("page: vend (for a phone) puts letters tapped up from the table upside down, until it is pressed again", async () => {
+  await openApp();
+  $("#removeButton").click();
+  const button = $("#turnButton");
+  button.click();
+  equal(button.getAttribute("aria-pressed"), "true");
+  const [a, b] = [pieceOf("A"), pieceOf("B")];
+  tap(a);
+  tap(b);
+  assert(turned(a) && turned(b), "both upside down");
+  button.click();
+  equal(button.getAttribute("aria-pressed"), "false");
+  const c = pieceOf("C");
+  tap(c);
+  assert(c.classList.contains("on-board") && !turned(c), "the right way up again");
+});
+
 test("page: on a phone, a letter tapped on the table goes to the cursor, also one that was on the board", async () => {
   await openApp();
   frame.style.width = "400px";
@@ -1300,7 +1389,7 @@ test("page: saving asks for a name, and the message becomes the next board", asy
   assert(!/Bygget på|Ny start|begyndte/.test($("#menu").textContent), "no lines about where a board came from");
 });
 
-test("page: a reload starts the board afresh, and remembers the boards saved", async () => {
+test("page: a reload opens on the original board, and remembers the boards saved", async () => {
   await openApp();
   await saveAs("Ann");
   $("#shareDialog").close();
@@ -1310,8 +1399,8 @@ test("page: a reload starts the board afresh, and remembers the boards saved", a
   const stored = localStorage.getItem(STORAGE_KEY);
 
   await openApp({ storage: stored });
-  equal([onBoard().length, onTable().length, boardText()], [61, 0, MARIANNE], "the board as it was saved, not as it was left");
-  equal($("#byline").textContent, "lavet af Ann");
+  equal([onBoard().length, onTable().length, boardText()], [61, 0, MARIANNE], "the original, as it is");
+  equal($("#byline").textContent, "lavet af Marianne");
   equal(localCards().length, 1);
 });
 
@@ -1338,10 +1427,11 @@ test("page: a broken share link is refused politely", async () => {
   assert($("#toast").textContent.includes("virker desværre ikke"));
 });
 
-test("page: the menu opens on the gallery, and shuts", async () => {
+test("page: the menu opens on the original boards, then the gallery, and shuts", async () => {
   await openApp();
   $("#menuButton").click();
-  assert(!$("#menu").hidden && $("#gallerySection").open);
+  assert(!$("#menu").hidden && $("#originalsSection").open && $("#gallerySection").open);
+  assert($("#originalsSection").compareDocumentPosition($("#gallerySection")) & Node.DOCUMENT_POSITION_FOLLOWING, "the originals first");
   equal($("#menuButton").getAttribute("aria-expanded"), "true");
   equal($$("#originalsList .card").length, 1, "the original, in a list of its own");
   assert(!$$("#galleryList .card-title").some((title) => title.textContent === MARIANNE), "and not in the gallery");

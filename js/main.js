@@ -40,7 +40,8 @@ let narrowSize = null;
 
 fitToWindow();
 bindControls();
-useBoard(library.source);
+// The site opens on the original board, or on the board in the link it was opened with.
+useBoard(ORIGINAL);
 openLinkedBoard();
 loadGallery();
 // The letters are measured in the board font: lay them out again once it is there.
@@ -248,6 +249,10 @@ function bindControls() {
   $("#spaceButton").addEventListener("click", () => workspace.space());
   $("#newLineButton").addEventListener("click", () => workspace.newLine());
   $("#backspaceButton").addEventListener("click", () => workspace.backspace());
+  $("#turnButton").addEventListener("click", () => {
+    workspace.turning = !workspace.turning;
+    $("#turnButton").setAttribute("aria-pressed", String(workspace.turning));
+  });
   holdToShowOriginal($("#originalButton"));
   $("#authorCancelButton").addEventListener("click", () => $("#authorDialog").close());
   $("#menuButton").addEventListener("click", () => ($("#menu").hidden ? openMenu() : closeMenu()));
