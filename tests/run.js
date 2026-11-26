@@ -349,10 +349,10 @@ test("table: the dice throws the letters in a heap, apart, the right way up, and
 });
 
 test("table: letters put down on the table push away the ones they would cover, and leave the rest be", () => {
-  const word = [{ ch: "N", x: 800, y: 100 }, { ch: "E", x: 850, y: 100 }];
+  const word = [{ ch: "N", x: 800, y: 100 }, { ch: "E", x: 850, y: 100 }, { ch: "J", x: 990, y: 101 }];
   const others = [
     { ch: "A", x: 805, y: 105 }, // under the N
-    { ch: "B", x: 852, y: 90 }, // under the E
+    { ch: "B", x: 920, y: 90 }, // between the words
     { ch: "C", x: 1100, y: 500 }, // far off
     { ch: "D", x: 1102, y: 502 }, // on top of the C, and stays there
   ];
@@ -362,9 +362,12 @@ test("table: letters put down on the table push away the ones they would cover, 
   const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
   const boxes = places.map((p, i) => box(others[i].ch, p));
   for (const i of [0, 1]) {
-    assert(!word.some((w) => hit(boxes[i], box(w.ch, w))), `${others[i].ch} is out from under the word`);
+    assert(!word.some((w) => hit(boxes[i], box(w.ch, w))), `${others[i].ch} is out from under the words`);
+    assert(boxes[i].b <= 100 - 30 - 25 || boxes[i].t >= 101 + 30 + 25, `${others[i].ch} is off the line, all the way across`);
     assert(!boxes.some((other, j) => j !== i && hit(boxes[i], other)), `${others[i].ch} is not put on another letter`);
-    assert(Math.hypot(places[i].x - others[i].x, places[i].y - others[i].y) < 120, `${others[i].ch} moved only a little`);
+    assert(Math.hypot(places[i].x - others[i].x, places[i].y - others[i].y) < 200, `${others[i].ch} moved only a little`);
+    const clearOf = (a, b) => a.l >= b.r + 25 || b.l >= a.r + 25 || a.t >= b.b + 25 || b.t >= a.b + 25;
+    assert(word.every((w) => clearOf(boxes[i], box(w.ch, w))), `${others[i].ch} leaves room around the word`);
     assert(places[i].x >= area.left && places[i].y - 30 >= area.top, "still on the table");
   }
   equal(places.slice(2), [{ x: 1100, y: 500 }, { x: 1102, y: 502 }], "the others stay, also on top of each other");
@@ -999,25 +1002,44 @@ test("page: vis original shows the previous message on the board for as long as 
   await openApp();
   $("#removeButton").click();
   const button = $("#originalButton");
-  const shown = () => [button.classList.contains("is-held"), $$("#felt .original .piece").length];
-  const onTableShown = () => onTable().filter((node) => getComputedStyle(node).visibility !== "hidden").length;
+  const shown = () => [button.classList.contains("is-held"), onBoard().length, onTable().length];
 
   pointer("pointerdown", button, centre(button));
-  equal(shown(), [true, 61], "held down");
-  equal(onTableShown(), 0, "the letters of the message go up from the table with it");
+  equal(shown(), [true, 61, 0], "held down: the letters of the message go back up on the board");
   pointer("pointerup", button, centre(button));
-  equal(shown(), [false, 0], "let go");
-  equal(onTableShown(), 61, "and come back");
+  equal(shown(), [false, 0, 61], "let go: and back down on the table");
 
   button.click();
-  equal(shown(), [false, 0], "a click is no toggle");
+  equal(shown(), [false, 0, 61], "a click is no toggle");
 
   const key = (type) => button.dispatchEvent(new (win().KeyboardEvent)(type, { key: " ", bubbles: true, cancelable: true }));
   key("keydown");
-  equal(shown(), [true, 61], "held with the space bar");
+  equal(shown(), [true, 61, 0], "held with the space bar");
   key("keyup");
-  equal(shown(), [false, 0]);
+  equal(shown(), [false, 0, 61]);
   equal(onBoard().length, 0, "the space was not typed on the board");
+});
+
+test("page: vis original puts the letters put up from the table back on it while held, and the message where it was", async () => {
+  const sent = encodeBoard({ tiles: [...layoutText([{ row: 5, text: "HEJ" }]), tile("X", 0, ROW_MAX, false, true)], author: "Bo" });
+  await openApp({ hash: `#b=${sent}` });
+  const x = pieceOf("X");
+  const xOnTable = place(x);
+  const h = onBoard().find((node) => node.dataset.ch === "H");
+  const hOnBoard = place(h);
+  drag(h, 0, 9 * GROOVE * pixelsPerUnit());
+  typeText("x");
+  assert(x.classList.contains("on-board"));
+  const before = [boardText(), place(x), place(h)];
+
+  const button = $("#originalButton");
+  pointer("pointerdown", button, centre(button));
+  assert(x.classList.contains("on-table") && !x.classList.contains("is-away"), "the X lies on the table again");
+  equal(place(x), xOnTable, "where it lay");
+  equal(place(h), hOnBoard, "the H is back in its place in the message");
+  pointer("pointerup", button, centre(button));
+  assert(x.classList.contains("on-board"), "and up on the board again, let go");
+  equal([boardText(), place(x), place(h)], before, "everything as it was");
 });
 
 test("page: letters can be dragged from the table onto the board, into a groove, and off again", async () => {
@@ -1038,29 +1060,50 @@ test("page: letters can be dragged from the table onto the board, into a groove,
   assert(Math.abs(middle.x - (zone.left + 60)) < 3 && Math.abs(middle.y - (zone.bottom - 60)) < 3, "lying where it was let go");
 });
 
-test("page: letters on the board can be moved, and turned with a double tap", async () => {
+test("page: letters on the board can be moved, turned with a tap, and taken off with a double tap", async () => {
   await openApp();
-  const l = onBoard()[0];
+  const [l, e] = onBoard();
   const [x, y] = place(l);
   drag(l, 0, 9 * GROOVE * pixelsPerUnit());
   equal(place(l), [x, y + 9 * GROOVE], "moved down nine grooves");
   equal(onBoard().length, 61);
   tap(l);
-  tap(l);
-  assert(turned(l), "a double tap turns it");
+  assert(turned(l), "a tap turns it, at once");
+  tap(e);
+  tap(e);
+  assert(e.classList.contains("on-table") && !turned(e), "a double tap takes it off, the right way up");
+  press("z", { ctrlKey: true });
+  assert(e.classList.contains("on-board") && !turned(e), "and it is undone in one go");
 });
 
-test("page: a tap sends a letter back where it was", async () => {
+test("page: a letter tapped on the table goes up at once, and is a letter on the board from then on", async () => {
+  await openApp();
+  $("#removeButton").click();
+  const letter = pieceOf("J");
+  tap(letter);
+  assert(letter.classList.contains("on-board"), "up at once");
+  tap(letter);
+  assert(letter.classList.contains("on-board") && turned(letter), "the next tap turns it: the first was no tap on the board");
+  tap(letter);
+  assert(letter.classList.contains("on-table") && !turned(letter), "and a second takes it off");
+});
+
+test("page: a double tap takes a letter off the board, and a tap puts one on the table up at the cursor", async () => {
   await openApp();
   const l = onBoard()[0];
   const onBoardAt = place(l);
   tap(l);
-  equal(onBoard().length, 61, "not straight away, a second tap would turn it");
-  await until(() => onBoard().length === 60, "the letter to come off");
-  assert(l.classList.contains("on-table"));
   tap(l);
-  await until(() => onBoard().length === 61, "the letter to go back up");
-  equal(place(l), onBoardAt, "back in its place on the board");
+  equal(onBoard().length, 60, "off at once");
+  assert(l.classList.contains("on-table"));
+  const felt = $("#felt").getBoundingClientRect();
+  const at = { x: felt.left + 300 * pixelsPerUnit(), y: felt.top + 600 * pixelsPerUnit() };
+  pointer("pointerdown", $("#felt"), at);
+  pointer("pointerup", $("#felt"), at);
+  tap(l);
+  assert(l.classList.contains("on-board"), "up at once");
+  equal(place(l)[1], 30 * GROOVE, "at the cursor, not back where it was");
+  assert(place(l)[1] !== onBoardAt[1]);
 
   // A letter typed from the table goes back to its place on the table.
   $("#removeButton").click();
@@ -1069,7 +1112,8 @@ test("page: a tap sends a letter back where it was", async () => {
   typeText("e");
   assert(e.classList.contains("on-board"));
   tap(e);
-  await until(() => e.classList.contains("on-table"), "the letter to come off");
+  tap(e);
+  assert(e.classList.contains("on-table"), "off with a double tap");
   equal(place(e), onTableAt, "back in its place on the table");
 });
 
@@ -1135,10 +1179,12 @@ test("page: Ctrl+Z takes back what was done, and Ctrl+Shift+Z or Ctrl+Y does it 
   equal(where(), start, "and no further");
 });
 
-test("page: the space and new line buttons (for a phone) type at the cursor", async () => {
+test("page: the space, new line and delete buttons (for a phone) type at the cursor", async () => {
   await openApp();
   $("#removeButton").click();
-  typeText("nej");
+  typeText("nejs");
+  $("#backspaceButton").click();
+  equal(boardText(), "NEJ", "slet takes back the last letter");
   $("#spaceButton").click();
   typeText("da");
   $("#newLineButton").click();
@@ -1155,6 +1201,11 @@ test("page: on a phone, a letter tapped on the table goes to the cursor, also on
   try {
     await until(() => win().innerWidth === 400 && win().matchMedia("(max-aspect-ratio: 1/1)").matches, "a phone-sized window");
     $("#removeButton").click();
+    // Pressing the board puts the cursor there.
+    const felt = $("#felt").getBoundingClientRect();
+    const at = { x: felt.left + 100 * pixelsPerUnit(), y: felt.top + 400 * pixelsPerUnit() };
+    pointer("pointerdown", $("#felt"), at, "touch");
+    pointer("pointerup", $("#felt"), at, "touch");
     for (const ch of ["H", "E", "J"]) {
       const letter = pieceOf(ch);
       tap(letter, "touch");
@@ -1166,6 +1217,7 @@ test("page: on a phone, a letter tapped on the table goes to the cursor, also on
     }
     equal(boardText(), "HE J");
     assert($("#felt .cursor"), "the cursor shows");
+    assert(onBoard().every((node) => place(node)[1] === 20 * GROOVE), "where the board was pressed");
   } finally {
     frame.style.width = "";
     frame.style.height = "";
@@ -1223,7 +1275,11 @@ test("page: saving asks for a name, and the message becomes the next board", asy
   await until(() => $("#authorDialog").open, "the name dialog");
   $("#authorCancelButton").click();
   assert(!$("#authorDialog").open && boardText() === "NEJ", "cancelling keeps the message");
-  await tick();
+  // The page hears that the dialog closed a moment after it does: until then, "gem og del" waits for the name.
+  await until(() => {
+    if (!$("#authorDialog").open) $("#saveButton").click();
+    return $("#authorDialog").open;
+  }, "the name dialog again");
 
   const code = await saveAs("  Ann  ");
   const board = decodeBoard(code);

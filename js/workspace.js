@@ -10,7 +10,7 @@
 // part of it where letters are laid out is the element `.table-zone`.
 
 import { freeXNearest, messageText, putAside, rowAt } from "./board.js";
-import { DOUBLE_TAP_MS, element, onBoard, paintPiece, pieceElement, watchPresses } from "./board-view.js";
+import { element, onBoard, paintPiece, pieceElement, watchPresses } from "./board-view.js";
 import { Editor, Pool } from "./editor.js";
 import { BOARD_H, EDGE, FELT_W, GROOVE, glyphForKey, glyphText, glyphWidth, sortKey } from "./glyphs.js";
 
@@ -19,14 +19,23 @@ const SORTED = { left: 40, top: 96, width: 572, gap: 17.5, line: 69 };
 /** The same, under the board (the phone design): the rows in the middle of the table, the first row this far down. */
 const SORTED_UNDER = { top: 130, width: 670, gap: 14.5, line: 65 };
 const SCATTER = { x: 321, y: 442, rx: 251, ry: 341, count: 61, room: 62 };
-/** How far apart letters moved out of the way lie, how far they look for room, and in what steps, in felt units. */
-const ROOM = { gap: 4, reach: 900, step: 14 };
+/**
+ * Letters moved out of the way: how far apart they lie; how much room they
+ * leave above and below a line of the letters put down; how close in height
+ * letters are to be on one line; how far they look for room, and in what
+ * steps. In felt units.
+ */
+const ROOM = { gap: 4, clear: 30, sameLine: 20, reach: 900, step: 14 };
 /** Under the board, the lines of letters taken off it: where the first goes, and how far apart, in felt units. */
 const STRAY_LINES = { top: 80, step: 66 };
 const MARGIN = 12;
 /** Under the board, how far the edge of the table is from the bottom of the page, in pixels (styles.css: --gutter). */
-const TABLE_EDGE_PX = 18; // how close to the edge of the page a letter may lie
+const TABLE_EDGE_PX = 18;
+/** Under the board, how far down from the edge of the table its buttons reach, in felt units. */
+const TABLE_TOOLS = 30; // how close to the edge of the page a letter may lie
 const UNDO_STEPS = 100;
+/** How long the letters take to slide to the original and back (keep in step with styles.css). */
+const SWAP_MS = 250;
 
 const plain = ({ ch, x, row, flip, loose }) => ({ ch, x, row, flip, loose });
 
@@ -34,7 +43,6 @@ export class Workspace {
   #stage;
   #felt;
   #layer;
-  #original;
   #zoneNode;
   #onChange;
   #notify;
@@ -46,7 +54,9 @@ export class Workspace {
   #cursorShown = false;
   #showingOriginal = false;
   #drag = null;
-  #pendingTap = 0;
+  /** The letter the last tap turned, and when: a second tap on it takes the turn back, and the letter off. */
+  #tapTurn = null;
+  #swapping = 0;
   /** What things looked like before each thing done, to undo it, and what was undone, to redo it. */
   #undone = [];
   #redone = [];
@@ -62,9 +72,8 @@ export class Workspace {
     this.#zoneNode = zone;
     this.#onChange = onChange;
     this.#notify = notify;
-    this.#original = element("div", "original");
     this.#layer = element("div", "pieces");
-    felt.append(this.#original, this.#layer);
+    felt.append(this.#layer);
     watchPresses(felt, this.#gestures());
   }
 
@@ -74,7 +83,7 @@ export class Workspace {
    * every time the same board is put in play.
    */
   setSource(tiles, draft = [], seed = 1) {
-    clearTimeout(this.#pendingTap);
+    this.#tapTurn = null;
     this.#showingOriginal = false;
     this.#cursorShown = false;
     this.#drag = null;
@@ -174,6 +183,11 @@ export class Workspace {
     this.handleKey({ key: " " });
   }
 
+  /** Take back the letter before the cursor, as Backspace does it: for a screen without a keyboard. */
+  backspace() {
+    this.handleKey({ key: "Backspace" });
+  }
+
   /** The cursor to the start of the next line, as Enter does it: for a screen without a keyboard. */
   newLine() {
     this.handleKey({ key: "Enter" });
@@ -193,6 +207,10 @@ export class Workspace {
   showOriginal(show) {
     if (this.#showingOriginal === show) return;
     this.#showingOriginal = show;
+    // The letters slide to where they go, and back (styles.css).
+    clearTimeout(this.#swapping);
+    this.#stage.classList.add("is-swapping");
+    this.#swapping = setTimeout(() => this.#stage.classList.remove("is-swapping"), SWAP_MS);
     this.#render({ touched: false });
   }
 
@@ -270,7 +288,6 @@ export class Workspace {
 
   #step(from, to) {
     if (this.#drag || from.length === 0) return;
-    clearTimeout(this.#pendingTap);
     this.#endOriginal();
     to.push(this.#snapshot());
     const snapshot = from.pop();
@@ -385,7 +402,8 @@ export class Workspace {
     const bounds = this.#bounds();
     const area = {
       left: Math.max(zone.x, bounds.left),
-      top: Math.max(zone.y, bounds.top),
+      // Under the board, clear of the buttons on the edge of the table.
+      top: Math.max(zone.y + (zone.beside ? 0 : TABLE_TOOLS), bounds.top),
       right: Math.min(zone.x + zone.w, bounds.right),
       bottom: Math.min(zone.y + zone.h, bounds.bottom),
     };
@@ -422,11 +440,27 @@ export class Workspace {
    * "board" or "table". A letter keeps its key wherever it goes.
    */
   #pieces() {
+    if (this.#showingOriginal) return this.#originalPieces();
     const pieces = this.#composer.tiles.map((tile) => ({ key: tile.src, tile, ch: tile.ch, flip: tile.flip, place: onBoard(tile), kind: "board" }));
     for (const tile of this.#pool.leftovers) {
       if (tile.table) pieces.push({ key: tile.id, tile, ch: tile.ch, flip: tile.table.flip, place: tile.table, kind: "table" });
     }
     return pieces;
+  }
+
+  /**
+   * The pieces as they were when the board was put in play, while "vis
+   * original" is held: the message up on the board, and the other letters on
+   * the table where they lie, or lay before they were put up on the board. A
+   * letter with no such place is "away", and not shown.
+   */
+  #originalPieces() {
+    return this.#pool.tiles.map((tile, i) => {
+      const source = this.#source[i];
+      if (!source.loose) return { key: tile.id, tile, ch: source.ch, flip: source.flip, place: onBoard(source), kind: "board" };
+      const at = tile.used ? tile.lastTable : tile.table;
+      return { key: tile.id, tile, ch: tile.ch, flip: Boolean(at?.flip), place: at ?? { x: 0, y: 0 }, kind: at ? "table" : "away" };
+    });
   }
 
   #find(key) {
@@ -458,8 +492,7 @@ export class Workspace {
       paintPiece(node, piece.ch, piece.flip, place);
       node.classList.toggle("on-board", piece.kind === "board");
       node.classList.toggle("on-table", piece.kind === "table");
-      // A letter of the previous message: while "vis original" is held, it is up on the board instead.
-      node.classList.toggle("of-message", piece.kind === "table" && !piece.tile.loose);
+      node.classList.toggle("is-away", piece.kind === "away");
       node.classList.toggle("is-lifted", dragged);
     }
     for (const [key, node] of this.#nodes) {
@@ -469,13 +502,6 @@ export class Workspace {
     }
 
     this.#stage.classList.toggle("is-showing-original", this.#showingOriginal);
-    this.#original.replaceChildren(
-      ...(this.#showingOriginal ? this.#source.filter((tile) => !tile.loose) : []).map((tile) => {
-        const node = pieceElement();
-        paintPiece(node, tile.ch, tile.flip, onBoard(tile));
-        return node;
-      }),
-    );
 
     this.#drawCursor();
     this.#felt.setAttribute("aria-label", `Tavlen: ${messageText(this.#composer.tiles) || "tom"}`);
@@ -511,42 +537,29 @@ export class Workspace {
   #gestures() {
     const editor = () => this.#composer;
     return {
-      canDrag: (key) => !(this.#showingOriginal && this.#find(key)?.kind === "board"),
+      canDrag: () => !this.#showingOriginal,
+      // Every tap does its thing at once, so tapping keeps up. A letter on the
+      // table goes up at the cursor. A letter on the board turns, and a second
+      // tap right after takes the turn back and the letter off the board.
+      canDoubleTap: (key) => this.#find(key)?.kind === "board",
       tap: (key) => {
         const piece = this.#find(key);
-        if (!piece || (piece.kind === "board" && this.#showingOriginal)) return;
-        // Wait a moment: a second tap turns the letter instead. Then the letter
-        // goes back where it was: off the board onto the table, or from the
-        // table up where it was on the board (at the cursor, if it never was).
-        // On a phone, where tapping letters is how one writes, a letter from
-        // the table always goes to the cursor.
-        clearTimeout(this.#pendingTap);
-        this.#pendingTap = setTimeout(() => {
-          const now = this.#find(key);
-          if (!now || now.kind !== piece.kind) return;
-          this.#record(() => {
-            if (now.kind === "board") return editor().remove(now.tile.id);
-            const letter = now.tile;
-            const piece = this.#pool.piece(key);
-            const toCursor = !this.#zone().beside;
-            const back = letter.wasOnBoard && !toCursor ? editor().drop(piece, letter.x, letter.row, now.flip) : "full";
-            if (back === "ok") return;
-            if (toCursor) this.#cursorShown = true;
-            this.#reportFull(editor().place(piece, now.flip));
-          });
-        }, DOUBLE_TAP_MS);
+        if (!piece || this.#showingOriginal) return;
+        if (piece.kind === "table") {
+          // As if typed, and the cursor shows where the next one goes.
+          this.#cursorShown = true;
+          this.#record(() => this.#reportFull(editor().place(this.#pool.piece(key), piece.flip)));
+          return;
+        }
+        this.#record(() => editor().flip(piece.tile.id));
+        this.#tapTurn = { key, step: this.#undone.length };
       },
       doubleTap: (key) => {
-        clearTimeout(this.#pendingTap);
+        if (this.#showingOriginal || this.#find(key)?.kind !== "board") return;
+        if (this.#tapTurn?.key === key && this.#tapTurn.step === this.#undone.length) this.undo();
+        this.#tapTurn = null;
         const piece = this.#find(key);
-        if (!piece || (piece.kind === "board" && this.#showingOriginal)) return;
-        this.#record(() => {
-          if (piece.kind === "board") editor().flip(piece.tile.id);
-          if (piece.kind === "table") {
-            this.#pool.lay(key, { ...piece.tile.table, flip: !piece.flip });
-            this.#render();
-          }
-        });
+        if (piece?.kind === "board") this.#record(() => editor().remove(piece.tile.id));
       },
       boardTap: (event) => {
         if (this.#showingOriginal) return;
@@ -682,7 +695,22 @@ export function scatteredPlaces(chars, zone, random = Math.random) {
 export function madeRoom(fixed, others, area, { spill = false } = {}) {
   const box = ({ ch, x, y }) => ({ left: x - ROOM.gap, right: x + glyphWidth(ch) + ROOM.gap, top: y - 30, bottom: y + 30 });
   const hits = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-  const covered = fixed.map(box);
+  // Each line of the letters put down is kept clear, all the way across, with room above and below.
+  const lines = [];
+  for (const letter of [...fixed].sort((a, b) => a.y - b.y)) {
+    const line = lines.at(-1);
+    if (line && letter.y - line.y < ROOM.sameLine) line.letters.push(letter);
+    else lines.push({ y: letter.y, letters: [letter] });
+  }
+  const covered = lines.map(({ letters }) => {
+    const boxes = letters.map(box);
+    return {
+      left: -Infinity,
+      right: Infinity,
+      top: Math.min(...boxes.map((b) => b.top)) - ROOM.clear,
+      bottom: Math.max(...boxes.map((b) => b.bottom)) + ROOM.clear,
+    };
+  });
   const free = (place, taken) => {
     const at = box(place);
     return !taken.some((other) => hits(at, other));

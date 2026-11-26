@@ -140,8 +140,9 @@ const TAP_SLOP = 5; // pixels a press may wander and still count as a tap
  * Turn presses on the pieces and the empty board under `root` into taps,
  * double taps and drags. `handlers`: `tap(id, event)`, `doubleTap(id, event)`,
  * `boardTap(event)` (a press on `root` itself, not on a piece), `canDrag(id)`,
- * `drag(id, event, start)`, `drop(id, event)` and `cancel(id)`. `start` is the
- * pointer event the press began with.
+ * `canDoubleTap(id)`, `drag(id, event, start)`, `drop(id, event)` and
+ * `cancel(id)`. `start` is the pointer event the press began with. A tap on a
+ * piece that cannot be double-tapped is never the first of a double tap.
  */
 export function watchPresses(root, handlers) {
   let press = null;
@@ -183,11 +184,12 @@ export function watchPresses(root, handlers) {
       handlers.drop?.(id, event);
     } else if (id === null) {
       handlers.boardTap?.(event);
-    } else if (lastTap.id === id && event.timeStamp - lastTap.time < DOUBLE_TAP_MS) {
+    } else if (lastTap.id === id && event.timeStamp - lastTap.time < DOUBLE_TAP_MS && handlers.canDoubleTap?.(id) !== false) {
+      // (A letter tapped off the board and onto the table in between is tapped again, not double-tapped.)
       lastTap = { id: null, time: 0 };
       handlers.doubleTap?.(id, event);
     } else {
-      lastTap = { id, time: event.timeStamp };
+      lastTap = handlers.canDoubleTap?.(id) === false ? { id: null, time: 0 } : { id, time: event.timeStamp };
       handlers.tap?.(id, event);
     }
   });

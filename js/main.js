@@ -247,6 +247,7 @@ function bindControls() {
   $("#sortButton").addEventListener("click", () => workspace.sortTable());
   $("#spaceButton").addEventListener("click", () => workspace.space());
   $("#newLineButton").addEventListener("click", () => workspace.newLine());
+  $("#backspaceButton").addEventListener("click", () => workspace.backspace());
   holdToShowOriginal($("#originalButton"));
   $("#authorCancelButton").addEventListener("click", () => $("#authorDialog").close());
   $("#menuButton").addEventListener("click", () => ($("#menu").hidden ? openMenu() : closeMenu()));

@@ -243,15 +243,16 @@ button {
   filter: drop-shadow(0 calc(6 * var(--u)) calc(6 * var(--u)) rgba(0, 0, 0, 0.4));
 }
 
-/* "vis original": the previous message takes the place of what is on the board,
-   and its letters lying on the table go up there with it. */
-.original {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+/* "vis original": the letters slide back to where they were when the board
+   was put in play, and back again (js/workspace.js). */
+.is-swapping .pieces .piece {
+  transition:
+    left 0.25s ease,
+    top 0.25s ease,
+    rotate 0.2s ease;
 }
 
-.is-showing-original .pieces .piece:is(.on-board, .of-message) {
+.pieces .piece.is-away {
   visibility: hidden;
 }
 
@@ -375,7 +376,7 @@ button {
   padding-left: calc(10.3 * var(--px));
 }
 
-/* "ny linje" and "mellemrum" are for a phone, which has no keyboard. */
+/* "ny linje", "mellemrum" and "slet" are for a phone, which has no keyboard. */
 .type-tools {
   display: none;
 }
@@ -553,7 +554,7 @@ button {
     padding: 0 8px;
   }
 
-  /* "ny linje" and "mellemrum", on the edge of the table across from them. */
+  /* "ny linje", "mellemrum" and "slet", on the edge of the table across from them. */
   .type-tools {
     display: flex;
     position: absolute;
