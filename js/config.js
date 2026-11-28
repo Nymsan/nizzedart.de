@@ -4,7 +4,7 @@
  * gallery is then read from GALLERY_URL, and boards saved here wait to be
  * uploaded until it is.
  */
-export const API_URL = "";
+export const API_URL = "https://nizzedart.andnymand.workers.dev";
 
 /** The gallery as it was before the server: a file in the repository. */
 export const GALLERY_URL = "data/boards.json";
