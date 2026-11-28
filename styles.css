@@ -252,6 +252,20 @@ button {
     rotate 0.2s ease;
 }
 
+/* The dice: the letters on the table tumble over to where they land (js/workspace.js). */
+.is-tumbling .pieces .piece.on-table {
+  transition:
+    left 0.55s cubic-bezier(0.2, 0.8, 0.3, 1),
+    top 0.55s cubic-bezier(0.2, 0.8, 0.3, 1);
+  animation: tumble 0.55s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes tumble {
+  from {
+    transform: rotate(-1turn);
+  }
+}
+
 .pieces .piece.is-away {
   visibility: hidden;
 }
@@ -367,6 +381,16 @@ button {
   display: block;
   width: calc(15.36 * var(--px));
   height: calc(16.16 * var(--px));
+}
+
+.scatter-button.is-rolling img {
+  animation: roll-dice 0.5s cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+
+@keyframes roll-dice {
+  from {
+    transform: rotate(-1turn) scale(0.7);
+  }
 }
 
 .sort-button {

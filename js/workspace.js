@@ -18,7 +18,8 @@ import { BOARD_H, EDGE, FELT_W, GROOVE, glyphForKey, glyphText, glyphWidth, sort
 const SORTED = { left: 40, top: 96, width: 572, gap: 17.5, line: 69 };
 /** The same, under the board (the phone design): the rows in the middle of the table, the first row this far down. */
 const SORTED_UNDER = { top: 130, width: 670, gap: 14.5, line: 65 };
-const SCATTER = { x: 321, y: 442, rx: 251, ry: 341, count: 61, room: 62 };
+/** The heap the dice throws the letters in: its middle and size in the design, made `loosen` times roomier, and how hard it looks for room. */
+const SCATTER = { x: 321, y: 442, rx: 251, ry: 341, count: 61, room: 62, loosen: 1.15, tries: 120 };
 /**
  * Letters moved out of the way: how far apart they lie; how much room they
  * leave above and below a line of the letters put down; how close in height
@@ -36,6 +37,8 @@ const TABLE_TOOLS = 30; // how close to the edge of the page a letter may lie
 const UNDO_STEPS = 100;
 /** How long the letters take to slide to the original and back (keep in step with styles.css). */
 const SWAP_MS = 250;
+/** How long the letters take to tumble to their new places when thrown about (keep in step with styles.css). */
+const TUMBLE_MS = 600;
 
 const plain = ({ ch, x, row, flip, loose }) => ({ ch, x, row, flip, loose });
 
@@ -63,6 +66,7 @@ export class Workspace {
   /** Whether letters put up from the table go up upside down ("vend", on a phone). */
   #turning = false;
   #swapping = 0;
+  #tumbling = 0;
   /** What things looked like before each thing done, to undo it, and what was undone, to redo it. */
   #undone = [];
   #redone = [];
@@ -167,6 +171,12 @@ export class Workspace {
     const loose = this.#pool.leftovers;
     if (loose.length === 0) return this.#notify("Der ligger ingen bogstaver på bordet");
     this.#tableSorted = false;
+    // The letters tumble over the table to where they land (styles.css).
+    clearTimeout(this.#tumbling);
+    this.#stage.classList.remove("is-tumbling");
+    void this.#stage.offsetWidth; // start the tumble again if it is still going
+    this.#stage.classList.add("is-tumbling");
+    this.#tumbling = setTimeout(() => this.#stage.classList.remove("is-tumbling"), TUMBLE_MS);
     this.#record(() => {
       this.#scatterOnTable(loose, random);
       this.#render();
@@ -720,15 +730,15 @@ export function sortedPlaces(chars, zone) {
 export function scatteredPlaces(chars, zone, random = Math.random) {
   const spread = Math.sqrt(Math.max(chars.length, 1) / SCATTER.count);
   // Beside the board, a heap the size of the design's; under it, as much of the table as there is.
-  const rx = Math.max(60, Math.min(zone.beside ? SCATTER.rx * spread : Infinity, zone.w / 2 - 40));
-  const ry = Math.max(60, Math.min(zone.beside ? SCATTER.ry * spread : Infinity, zone.h / 2 - 50));
+  const rx = Math.max(60, Math.min(zone.beside ? SCATTER.rx * SCATTER.loosen * spread : Infinity, zone.w / 2 - 40));
+  const ry = Math.max(60, Math.min(zone.beside ? SCATTER.ry * SCATTER.loosen * spread : Infinity, zone.h / 2 - 50));
   const cx = zone.x + (zone.beside ? Math.min(SCATTER.x, zone.w / 2) : zone.w / 2);
   const cy = zone.y + (zone.beside ? Math.min(SCATTER.y, zone.h / 2) : zone.h / 2);
   const middles = [];
   return chars.map((ch) => {
     let best = null;
     let bestRoom = -1;
-    for (let attempt = 0; attempt < 40 && bestRoom < SCATTER.room; attempt += 1) {
+    for (let attempt = 0; attempt < SCATTER.tries && bestRoom < SCATTER.room; attempt += 1) {
       const angle = random() * 2 * Math.PI;
       const reach = Math.sqrt(random());
       const at = { x: cx + Math.cos(angle) * reach * rx, y: cy + Math.sin(angle) * reach * ry };

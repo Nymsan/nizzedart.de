@@ -244,7 +244,15 @@ function forget(board) {
 function bindControls() {
   $("#saveButton").addEventListener("click", saveBoard);
   $("#removeButton").addEventListener("click", () => workspace.removeAll());
-  $("#scatterButton").addEventListener("click", () => workspace.scatter());
+  $("#scatterButton").addEventListener("click", (event) => {
+    // The dice rolls (styles.css).
+    const dice = event.currentTarget;
+    dice.classList.remove("is-rolling");
+    void dice.offsetWidth; // roll again if it is still rolling
+    dice.classList.add("is-rolling");
+    workspace.scatter();
+  });
+  $("#scatterButton").addEventListener("animationend", (event) => event.currentTarget.classList.remove("is-rolling"));
   $("#sortButton").addEventListener("click", () => workspace.sortTable());
   $("#spaceButton").addEventListener("click", () => workspace.space());
   $("#newLineButton").addEventListener("click", () => workspace.newLine());
