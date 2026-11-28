@@ -5,6 +5,7 @@
 import {
   BOARD_W,
   GROOVE,
+  LETTER_GAP,
   LINE_STEP,
   MARGIN_X,
   ROW_MAX,
@@ -36,13 +37,16 @@ export function blockerAt(tiles, ch, x, row, ignoreId = null) {
   return null;
 }
 
-/** The first free x at or after `x` on `row`, or null if the row is full from there. */
-export function freeXForward(tiles, ch, x, row) {
+/**
+ * The first free x at or after `x` on `row`, or null if the row is full from
+ * there. Past a letter in the way, it goes on `gap` after it.
+ */
+export function freeXForward(tiles, ch, x, row, gap = LETTER_GAP) {
   let at = Math.max(0, x);
   while (at <= maxX(ch)) {
     const blocker = blockerAt(tiles, ch, at, row);
     if (!blocker) return at;
-    at = tileRight(blocker) + gapBetween(blocker.ch, ch);
+    at = tileRight(blocker) + Math.max(gap, gapBetween(blocker.ch, ch));
   }
   return null;
 }
@@ -74,14 +78,9 @@ export function nextLine(row) {
   return { x: MARGIN_X, row: next > ROW_MAX ? ROW_MIN : next };
 }
 
-/**
- * Where a typed letter lands: at the cursor, or on the first following line
- * with room. Typed right after another letter, it is kerned against that one.
- */
+/** Where a typed letter lands: at the cursor, or on the first following line with room. */
 export function typingSlot(tiles, ch, cursor) {
   let { x, row } = cursor;
-  const before = tiles.find((tile) => tile.row === row && tileRight(tile) + gapAfter(tile.ch) === x);
-  if (before) x = tileRight(before) + gapBetween(before.ch, ch);
   const lines = Math.ceil((ROW_MAX - ROW_MIN + 1) / LINE_STEP) + 1;
   for (let i = 0; i < lines; i += 1) {
     const free = freeXForward(tiles, ch, x, row);
@@ -96,16 +95,12 @@ export function layoutText(lines) {
   const tiles = [];
   for (const { text, row } of lines) {
     let x = MARGIN_X;
-    let before = null;
     for (const ch of text) {
       if (ch === " ") {
         x += WORD_GAP;
-        before = null;
       } else {
-        if (before) x += gapBetween(before, ch) - gapAfter(before);
         tiles.push({ ch, x, row, flip: false, loose: false });
         x += glyphWidth(ch) + gapAfter(ch);
-        before = ch;
       }
     }
   }
@@ -125,7 +120,7 @@ export function readLines(tiles) {
       const line = rows.get(row).sort((a, b) => a.x - b.x);
       return line
         .map((tile, i) => {
-          const isNewWord = i > 0 && tile.x - tileRight(line[i - 1]) > WORD_GAP * 0.7;
+          const isNewWord = i > 0 && tile.x - tileRight(line[i - 1]) > LETTER_GAP + WORD_GAP / 2;
           return (isNewWord ? " " : "") + glyphReading(tile.ch, tile.flip);
         })
         .join("");

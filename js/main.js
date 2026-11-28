@@ -1,37 +1,51 @@
-// Puts the page together: the workspace, the saved boards and the gallery.
+// Puts the page together: the board in play, the menu with the gallery and
+// the saved boards, and the dialogs for passing a board on.
 
+import { galleryApi } from "./api.js";
 import { renderCards } from "./cards.js";
 import { decodeBoard, encodeBoard } from "./codec.js";
-import { GALLERY_URL } from "./config.js";
+import { API_URL, GALLERY_URL } from "./config.js";
 import { askAuthor, showShareDialog } from "./dialogs.js";
-import { renderHelp } from "./help.js";
 import { Library, ORIGINAL } from "./library.js";
-import { watchBoardFont } from "./metrics.js";
-import { takeLinkedCode } from "./share.js";
-import { $, formatDate, toast } from "./ui.js";
+import { takeLink } from "./share.js";
+import { $, toast } from "./ui.js";
 import { Workspace } from "./workspace.js";
 
 const GALLERY_PAGE = 12;
 
+/** The design is drawn for a window this size, in pixels. */
+const DESIGN = { width: 1280, height: 730, frame: 368, board: 517 };
+/** On a narrow screen, standing up, the table goes under the board (keep in step with styles.css). */
+const NARROW = window.matchMedia("(max-aspect-ratio: 1/1) and (max-width: 999.98px)");
+/** In pixels, from the design for a phone: above the board, from the board to the table, the least of the table to see, the margin. */
+const NARROW_LAYOUT = { above: 74, below: 52, table: 150, gutter: 18 };
+
+/** How many boards saved here, but not in the gallery yet, are sent to it each time the page opens. */
+const UPLOADS_AT_START = 10;
+
+const api = galleryApi(API_URL);
 const library = new Library(browserStorage());
 const workspace = new Workspace({
-  sourceBoard: $("#sourceBoard"),
-  composeBoard: $("#composeBoard"),
-  tray: $("#tray"),
+  stage: $("#stage"),
+  felt: $("#felt"),
+  zone: $("#tableZone"),
   onChange: onWorkspaceChange,
   notify: toast,
 });
 
 let galleryShown = GALLERY_PAGE;
-let saveTimer = 0;
 let isSaving = false;
+/** The window size the board on a narrow screen was last fitted to. */
+let narrowSize = null;
 
-watchBoardFont();
-renderHelp($("#help"));
+fitToWindow();
 bindControls();
-useBoard(library.source, library.draft);
+// The site opens on the original board, or on the board in the link it was opened with.
+useBoard(ORIGINAL);
 openLinkedBoard();
 loadGallery();
+// The letters are measured in the board font: lay them out again once it is there.
+document.fonts?.ready.then(() => workspace.relayout());
 
 function browserStorage() {
   try {
@@ -42,47 +56,59 @@ function browserStorage() {
   }
 }
 
+/**
+ * Scale the page to the window: as in the design on a wide screen. On a narrow
+ * one, as wide as it goes, but no taller than leaves room under the board for
+ * its buttons and the table, so the whole of it fits on the screen.
+ */
+function fitToWindow() {
+  const { innerWidth: width, innerHeight: height } = window;
+  if (!NARROW.matches) narrowSize = null;
+  const fitted = NARROW.matches ? narrowScale(width, height) : Math.max(Math.min(width / DESIGN.width, height / DESIGN.height), 0.3);
+  if (fitted === null) return;
+  document.documentElement.style.setProperty("--s", fitted.toFixed(4));
+}
+
+function narrowScale(width, height) {
+  // A phone's toolbars come and go as the page scrolls, and the keyboard takes
+  // half the screen: the board keeps its size through that, and only changes
+  // when the phone is turned, or the window is made a quite different size.
+  if (narrowSize && narrowSize.width === width && Math.abs(narrowSize.height - height) < 160) return null;
+  narrowSize = { width, height };
+  const table = Math.max(NARROW_LAYOUT.table, height * 0.26);
+  const tall = (height - NARROW_LAYOUT.above - NARROW_LAYOUT.below - table) / DESIGN.board;
+  return Math.max(Math.min((width - 2 * NARROW_LAYOUT.gutter) / DESIGN.frame, tall, 1.4), 0.6);
+}
+
 // --- The board in play -------------------------------------------------------
 
-/** Put a board on the left, ready to be turned into a new message. */
+/**
+ * Put a board's letters in play, as the board was left. `draft` is how they
+ * lay before, to have that back. Where they lie is not kept: a reload starts
+ * the board afresh.
+ */
 function useBoard(board, draft = []) {
   library.source = board;
-  workspace.setSource(board.tiles, draft);
+  workspace.setSource(board.tiles, draft, parseInt(board.id.slice(0, 8), 16));
   library.save();
-  renderSourceInfo();
+  $("#byline").textContent = board.author ? `lavet af ${board.author}` : "";
   renderLists();
 }
 
-/** Like `useBoard`, for when the user picks another board: an unfinished message can be had back. */
+/** Like `useBoard`, for when the user picks another board: what they were doing can be had back. */
 function switchTo(board) {
-  const previous = { board: library.source, draft: workspace.draft };
-  if (workspace.isRewriting) workspace.cancelRewrite();
+  const previous = workspace.isTouched ? { board: library.source, draft: workspace.draft } : null;
+  closeMenu();
   useBoard(board);
-  $("#workspace").scrollIntoView({ behavior: "smooth", block: "start" });
-  if (previous.draft.length > 0) {
-    toast("Din kladde er lagt til side.", { label: "Fortryd", run: () => useBoard(previous.board, previous.draft) });
-  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  if (previous) toast("Din kladde er lagt til side.", { label: "Fortryd", run: () => useBoard(previous.board, previous.draft) });
 }
 
 function onWorkspaceChange() {
-  const rewriting = workspace.isRewriting;
-  $("#composePanel").inert = rewriting;
-  $("#sourcePanel").classList.toggle("is-rewriting", rewriting);
-  $("#rewriteButton").hidden = rewriting;
-  $("#rewriteCancelButton").hidden = !rewriting;
-  $("#rewriteSaveButton").hidden = !rewriting;
-  if (rewriting) return;
-
-  // Remember the unfinished message, but not on every step of a drag.
-  library.draft = workspace.draft;
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => library.save(), 300);
-}
-
-function renderSourceInfo() {
-  const board = library.source;
-  const facts = [board.author && `Af ${board.author}`, board.createdAt > 0 && formatDate(board.createdAt)].filter(Boolean);
-  $("#sourceByline").textContent = facts.join(" · ");
+  $("#originalButton").classList.toggle("is-held", workspace.showingOriginal);
+  // On a phone, the buttons under the board are the ones that do something now (styles.css).
+  $("#stage").classList.toggle("is-board-empty", workspace.isEmpty);
+  $("#stage").classList.toggle("is-board-as-original", workspace.isAsOriginal);
 }
 
 /** Save what is on the board as a new board, and offer to pass it on. */
@@ -90,11 +116,9 @@ async function saveBoard() {
   if (isSaving) return;
   const tiles = workspace.result();
   if (!tiles) {
-    toast("Skriv en besked på tavlen først.");
+    toast("Sæt nogle bogstaver op på tavlen først.");
     return;
   }
-  // A rewritten board starts a new chain; a new message descends from the one it was made of.
-  const parentId = workspace.isRewriting ? null : library.source.id;
 
   isSaving = true;
   const author = await askAuthor(library.author).finally(() => {
@@ -102,63 +126,105 @@ async function saveBoard() {
   });
   if (author === null) return;
 
-  const board = library.keep(decodeBoard(encodeBoard({ tiles, author, parentId })), "mine");
+  const board = library.keep(decodeBoard(encodeBoard({ tiles, author, parentId: library.source.id })), "mine");
   library.author = author;
   useBoard(board);
-  share(board, "Gemt! Send den videre");
+  await share(board, "gemt! send den videre");
 }
 
-function share(board, heading = "Del tavlen") {
-  showShareDialog(board, {
-    title: library.titleOf(board),
+/** Show a board's link. A board saved here goes into the gallery first, if it can, to have its short link. */
+async function share(board, heading = "del tavlen") {
+  const shown = board.origin === "mine" ? ((await upload(board)) ?? board) : board;
+  showShareDialog(shown, {
+    title: library.titleOf(shown),
     heading,
-    canSubmit: board.id !== ORIGINAL.id && !library.gallery.some((shared) => shared.id === board.id),
+    notUploaded: Boolean(api) && shown.origin === "mine",
   });
+}
+
+/** Put a board saved here in the gallery. Resolves to the board as the gallery lists it, or null if it could not. */
+async function upload(board) {
+  if (!api) return null;
+  try {
+    const shared = library.addToGallery(board, await api.save(board.code));
+    renderLists();
+    return shared;
+  } catch {
+    return null;
+  }
+}
+
+/** Send the boards saved here, but not in the gallery yet (saved offline, or before there was a server), to it. */
+async function uploadUnsent() {
+  for (const board of library.unsent.slice(0, UPLOADS_AT_START)) {
+    if (!(await upload(board))) return;
+  }
 }
 
 // --- Boards from elsewhere -----------------------------------------------------
 
 /** If the page was opened through a share link, put that board in play. */
-function openLinkedBoard() {
-  const code = takeLinkedCode();
-  if (code === null) return false;
+async function openLinkedBoard() {
+  const link = takeLink();
+  if (link === null) return;
   let board;
   try {
-    board = decodeBoard(code);
+    if (link.shortId) {
+      // A board in the gallery, by its short id.
+      if (!api) throw new Error("No gallery to ask");
+      board = library.addToGallery(decodeBoard(await api.get(link.shortId)), link.shortId);
+    } else {
+      board = library.keep(decodeBoard(link.code), "link");
+    }
   } catch {
     toast("Linket virker desværre ikke.");
-    return false;
+    return;
   }
-  board = library.keep(board, "link");
   switchTo(board);
   toast(board.author ? `${board.author} har sendt dig en tavle. Byg videre på den!` : "Du har fået en tavle. Byg videre på den!");
-  return true;
 }
 
 async function loadGallery() {
   try {
-    const response = await fetch(GALLERY_URL, { cache: "no-cache" });
-    if (!response.ok) throw new Error(response.statusText);
-    library.setGallery(await response.json());
+    if (api) {
+      library.setGallery(await api.list());
+    } else {
+      const response = await fetch(GALLERY_URL, { cache: "no-cache" });
+      if (!response.ok) throw new Error(response.statusText);
+      library.setGallery(await response.json());
+    }
   } catch {
     // Offline, or no gallery yet: everything else still works.
   }
   renderLists();
+  await uploadUnsent();
 }
 
-// --- Lists ---------------------------------------------------------------------
+// --- The menu ------------------------------------------------------------------
+
+function openMenu() {
+  $("#menu").hidden = false;
+  $("#menuBackdrop").hidden = false;
+  $("#menuButton").setAttribute("aria-expanded", "true");
+  $("#menuCloseButton").focus();
+}
+
+function closeMenu() {
+  if ($("#menu").hidden) return;
+  $("#menu").hidden = true;
+  $("#menuBackdrop").hidden = true;
+  $("#menuButton").setAttribute("aria-expanded", "false");
+}
 
 function renderLists() {
   const options = { library, activeId: library.source.id, onUse: switchTo, onShare: (board) => share(board) };
 
-  // The original always closes the gallery, also when the gallery could not be fetched.
-  const gallery = [...library.gallery.filter((board) => board.id !== ORIGINAL.id), ORIGINAL];
-  renderCards($("#galleryList"), gallery.slice(0, galleryShown), options);
+  const gallery = library.listed;
+  renderCards($("#galleryList"), gallery.slice(0, galleryShown), { ...options, onForget: forget });
   $("#galleryMoreButton").hidden = gallery.length <= galleryShown;
-  $("#galleryEmpty").hidden = gallery.length > 1;
+  $("#galleryEmpty").hidden = gallery.length > 0;
 
-  renderCards($("#savedList"), library.saved, { ...options, onForget: forget });
-  $("#savedSection").hidden = library.saved.length === 0;
+  renderCards($("#originalsList"), [ORIGINAL], options);
 }
 
 function forget(board) {
@@ -177,12 +243,21 @@ function forget(board) {
 
 function bindControls() {
   $("#saveButton").addEventListener("click", saveBoard);
-  $("#clearButton").addEventListener("click", () => workspace.clear());
-  $("#shuffleButton").addEventListener("click", () => workspace.shuffle());
-  $("#rewriteButton").addEventListener("click", () => workspace.startRewrite());
-  $("#rewriteCancelButton").addEventListener("click", () => workspace.cancelRewrite());
-  $("#rewriteSaveButton").addEventListener("click", saveBoard);
+  $("#removeButton").addEventListener("click", () => workspace.removeAll());
+  $("#scatterButton").addEventListener("click", () => workspace.scatter());
+  $("#sortButton").addEventListener("click", () => workspace.sortTable());
+  $("#spaceButton").addEventListener("click", () => workspace.space());
+  $("#newLineButton").addEventListener("click", () => workspace.newLine());
+  $("#backspaceButton").addEventListener("click", () => workspace.backspace());
+  $("#turnButton").addEventListener("click", () => {
+    workspace.turning = !workspace.turning;
+    $("#turnButton").setAttribute("aria-pressed", String(workspace.turning));
+  });
+  holdToShowOriginal($("#originalButton"));
   $("#authorCancelButton").addEventListener("click", () => $("#authorDialog").close());
+  $("#menuButton").addEventListener("click", () => ($("#menu").hidden ? openMenu() : closeMenu()));
+  $("#menuCloseButton").addEventListener("click", closeMenu);
+  $("#menuBackdrop").addEventListener("click", closeMenu);
   $("#galleryMoreButton").addEventListener("click", () => {
     galleryShown += GALLERY_PAGE;
     renderLists();
@@ -190,16 +265,49 @@ function bindControls() {
 
   // A pressed button gives the keyboard back to the board, so that a space typed
   // afterwards is a space, and not another press of the button.
-  $("#workspace").addEventListener("click", (event) => event.target.closest(".panel-actions button")?.blur());
+  $("#stage").addEventListener("click", (event) => event.target.closest(".play button")?.blur());
 
   document.addEventListener("keydown", onKeyDown);
+  window.addEventListener("resize", () => {
+    fitToWindow();
+    workspace.relayout();
+  });
   window.addEventListener("hashchange", openLinkedBoard);
   // A phone may throw the page away while it is in the background.
   window.addEventListener("pagehide", () => library.save());
 }
 
+/** "vis original" shows the previous message for as long as it is held down, by pointer or key. */
+function holdToShowOriginal(button) {
+  const show = (on) => workspace.showOriginal(on);
+  button.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    try {
+      button.setPointerCapture(event.pointerId);
+    } catch {
+      // Only real pointers can be captured; scripted ones (in tests) cannot.
+    }
+    show(true);
+  });
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture", "blur"]) button.addEventListener(type, () => show(false));
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== " " && event.key !== "Enter") return;
+    event.preventDefault();
+    show(true);
+  });
+  button.addEventListener("keyup", (event) => {
+    if (event.key === " " || event.key === "Enter") show(false);
+  });
+  // A long press on a touch screen would otherwise bring up a menu.
+  button.addEventListener("contextmenu", (event) => event.preventDefault());
+}
+
 function onKeyDown(event) {
   if (event.defaultPrevented || document.querySelector("dialog[open]")) return;
+  if (!$("#menu").hidden) {
+    if (event.key === "Escape") closeMenu();
+    return;
+  }
   const target = event.target;
   if (target instanceof HTMLElement) {
     if (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;

@@ -1,0 +1,30 @@
+# Puts the gallery's server (worker/) on Cloudflare whenever it, or the board
+# format it checks boards with, changes on main. See worker/README.md.
+
+name: Deploy the gallery server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "js/codec.js"
+      - "js/glyphs.js"
+      - "js/glyph-metrics.js"
+      - ".github/workflows/worker.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: |
+            d1 execute nizzedart --remote --file=schema.sql
+            d1 execute nizzedart --remote --file=seed.sql
+            deploy

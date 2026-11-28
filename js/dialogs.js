@@ -2,7 +2,7 @@
 
 import { BoardView } from "./board-view.js";
 import { cleanAuthor } from "./codec.js";
-import { copyText, gallerySubmitUrl, shareUrl } from "./share.js";
+import { copyText, shareUrl } from "./share.js";
 import { $ } from "./ui.js";
 
 /** Ask who is writing. Resolves to the name, or null if the dialog was dismissed. */
@@ -24,26 +24,24 @@ export function askAuthor(suggestion) {
  * Show a board with its link and the ways to pass it on.
  * @param {object} board
  * @param {object} options `title` of the board, `heading` of the dialog, and
- *   `canSubmit`: whether to offer sending it to the gallery.
+ *   `notUploaded`: whether to say it did not get into the gallery.
  */
-export function showShareDialog(board, { title, heading, canSubmit }) {
+export function showShareDialog(board, { title, heading, notUploaded = false }) {
   const url = shareUrl(board);
-  const submitUrl = canSubmit ? gallerySubmitUrl(board, title) : null;
 
   $("#shareHeading").textContent = heading;
   $("#shareTitle").textContent = board.author ? `${title} — af ${board.author}` : title;
   new BoardView($("#sharePreview")).render(board.tiles, { label: title });
   $("#shareLink").value = url;
-  $("#copyButton").textContent = "Kopiér link";
+  $("#copyButton").textContent = "kopiér link";
   $("#nativeShareButton").hidden = typeof navigator.share !== "function";
-  $("#submitSection").hidden = submitUrl === null;
-  if (submitUrl) $("#submitLink").href = submitUrl;
+  $("#uploadNote").hidden = !notUploaded;
 
   $("#copyButton").onclick = async () => {
     const copied = await copyText(url);
     // Without clipboard access, leave the link selected so it can be copied by hand.
     if (!copied) $("#shareLink").select();
-    $("#copyButton").textContent = copied ? "Kopieret!" : "Markeret – kopiér selv";
+    $("#copyButton").textContent = copied ? "kopieret!" : "markeret – kopiér selv";
   };
   $("#nativeShareButton").onclick = () => {
     navigator.share({ title: "nizzedart.de", text: title, url }).catch(() => {

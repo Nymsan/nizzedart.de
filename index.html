@@ -5,132 +5,119 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>www.nizzedart.de</title>
   <meta name="description" content="Lav en ny besked af bogstaverne fra den forrige, og send tavlen videre.">
-  <meta name="theme-color" content="#d6cbbb">
-  <link rel="preload" href="fonts/FiraSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="theme-color" content="#d9b48a">
+  <link rel="preload" href="fonts/NationalPark.woff2" as="font" type="font/woff2" crossorigin>
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="www.nizzedart.de">
+  <meta property="og:description" content="Lav en ny besked af bogstaverne fra den forrige, og send tavlen videre.">
+  <meta property="og:image" content="https://www.nizzedart.de/images/thumbnail.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1201">
+  <meta property="og:image:height" content="631">
+  <meta property="og:image:alt" content="Bogstavtavlen på www.nizzedart.de">
+  <meta property="og:url" content="https://www.nizzedart.de/">
+
+  <meta name="twitter:card" content="summary_large_image">
+
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
-  <header class="site-header">
-    <!-- The address, spelled the way the board would: W is an upside-down M, the dot an upside-down apostrophe. -->
-    <h1 class="brand" aria-label="www.nizzedart.de">
-      <span aria-hidden="true">W<i>M</i><i>M</i><i>'</i>NIZZEDART<i>'</i>DE</span>
-    </h1>
-    <p class="tagline">Lav en ny besked af bogstaverne fra den forrige, og send tavlen videre.</p>
-  </header>
+  <div id="stage" class="stage">
+    <header class="site-header">
+      <!-- The icons are drawn here rather than loaded, at the proportions the design gives them. -->
+      <button id="menuButton" class="menu-button" type="button" aria-label="Menu" aria-expanded="false" aria-controls="menu">
+        <svg viewBox="0 0 32 22.64" aria-hidden="true">
+          <rect y="0" width="32" height="2.64" rx="1.32"/>
+          <rect y="10" width="32" height="2.64" rx="1.32"/>
+          <rect y="20" width="32" height="2.64" rx="1.32"/>
+        </svg>
+      </button>
+      <h1 class="logo"><img src="images/logo.svg" alt="www.nizzedart.de" width="196" height="28"></h1>
+    </header>
 
-  <main>
-    <section id="workspace" class="workspace" aria-label="Tavlerne">
-      <article id="sourcePanel" class="panel">
-        <header class="panel-head">
-          <div>
-            <h2>Forrige besked</h2>
-            <p id="sourceByline" class="byline"></p>
-          </div>
-          <div class="panel-actions">
-            <button id="rewriteButton" class="btn" type="button">Ret tavlen</button>
-            <button id="rewriteCancelButton" class="btn" type="button" hidden>Annullér</button>
-            <button id="rewriteSaveButton" class="btn btn-primary" type="button" hidden>Gem som ny tavle</button>
-          </div>
-        </header>
-        <div id="sourceBoard"></div>
-      </article>
+    <main class="play">
+      <button id="removeButton" class="pill remove-button" type="button" title="Tag alle bogstaverne af tavlen" aria-label="Tag alle bogstaverne af tavlen">
+        <span class="remove-label" aria-hidden="true">ryd board</span>
+        <svg viewBox="0 0 17.26 8.03" aria-hidden="true">
+          <path d="M17.09 7.15C17.09 7.15 17.15 7.05 17.17 7L17.19 6.97C17.23 6.84 17.25 6.69 17.23 6.54C17.26 6.51 17.24 6.47 17.24 6.44L16.66 1.46C16.62 1.12 16.45 0.85 16.17 0.61C15.9 0.37 15.58 0.29 15.24 0.33C14.87 0.37 14.59 0.53 14.37 0.82C14.16 1.09 14.07 1.39 14.12 1.75L14.32 3.49L14.28 3.46C14.28 3.46 14.33 3.62 14.35 3.71C14.3 3.66 14.28 3.57 14.22 3.52C10.09 0 3.92 0.46 0.42 4.54C0 5.03 0.06 5.77 0.55 6.19C1.05 6.62 1.79 6.57 2.21 6.07C4.86 2.98 9.56 2.63 12.67 5.31C12.73 5.35 12.8 5.37 12.87 5.41C12.78 5.4 12.7 5.41 12.61 5.37L12.64 5.4L10.89 5.46C10.53 5.46 10.24 5.6 10.01 5.87C9.79 6.13 9.67 6.44 9.68 6.78C9.7 7.13 9.82 7.43 10.07 7.66C10.34 7.91 10.64 8.03 10.99 8.02L15.99 7.84C15.99 7.84 16.03 7.83 16.05 7.83C16.07 7.84 16.08 7.83 16.08 7.83C16.08 7.83 16.13 7.8 16.15 7.79C16.27 7.77 16.39 7.74 16.49 7.71C16.51 7.69 16.53 7.69 16.54 7.68C16.6 7.63 16.64 7.59 16.69 7.56C16.75 7.52 16.82 7.49 16.87 7.43L16.92 7.38L16.95 7.34C16.95 7.34 17.02 7.21 17.06 7.12L17.09 7.15Z"/>
+        </svg>
+      </button>
+      <div class="frame">
+        <div id="felt" class="felt" data-board-tap role="img" aria-label="Tavlen"></div>
+      </div>
+      <button id="originalButton" class="pill pill-text original-button" type="button" title="Hold nede for at se den oprindelige tavle">vis original</button>
+      <p id="byline" class="byline"></p>
+      <button id="saveButton" class="save-tab" type="button">gem og del<span class="save-mark">!</span></button>
 
-      <article id="composePanel" class="panel">
-        <header class="panel-head">
-          <div>
-            <h2>Din besked</h2>
-            <p class="byline">Kun med bogstaverne fra den forrige</p>
-          </div>
-          <div class="panel-actions">
-            <button id="clearButton" class="btn" type="button">Ryd</button>
-            <button id="shuffleButton" class="btn" type="button">Bland</button>
-            <button id="saveButton" class="btn btn-primary" type="button">Gem og del</button>
-          </div>
-        </header>
-        <div id="composeBoard"></div>
-        <div id="tray" class="tray" role="group" aria-label="Bogstaver på tavlen"></div>
-      </article>
-    </section>
+      <div class="table-tools">
+        <button id="scatterButton" class="pill scatter-button" type="button" title="Bland bogstaverne på bordet" aria-label="Bland bogstaverne på bordet">
+          <img src="images/randomise.svg" alt="">
+        </button>
+        <button id="sortButton" class="pill pill-text sort-button" type="button">sorter a-z</button>
+      </div>
+      <!-- On a phone, which has no keyboard to type with. -->
+      <div class="type-tools">
+        <button id="turnButton" class="pill pill-text" type="button" aria-pressed="false" title="Bogstaverne kommer op på hovedet">vend</button>
+        <button id="newLineButton" class="pill pill-text" type="button">ny linje</button>
+        <button id="spaceButton" class="pill pill-text" type="button">mellemrum</button>
+        <button id="backspaceButton" class="pill pill-text" type="button">slet</button>
+      </div>
+      <div id="tableZone" class="table-zone" aria-hidden="true"></div>
+    </main>
+  </div>
 
-    <details id="help" class="help">
-      <summary>Sådan gør du</summary>
-      <ol class="help-steps">
-        <li class="help-step">
-          <div class="help-pictures" data-example="pick"></div>
-          <p>Byg din besked af bogstaverne fra den forrige. Tryk på dem, eller skriv på tastaturet.</p>
-        </li>
-        <li class="help-step">
-          <div class="help-pictures" data-example="turn"></div>
-          <p>Dobbeltklik på et bogstav for at vende det. Så bliver M til W, og 6 til 9.</p>
-        </li>
-        <li class="help-step">
-          <div class="help-pictures" data-example="aside"></div>
-          <p>Når du gemmer, bliver de bogstaver, du ikke brugte, liggende ved siden af tavlen. Den næste kan stadig bruge dem.</p>
-        </li>
-      </ol>
-      <ul class="help-keys">
-        <li><kbd>Mellemrum</kbd> laver mellemrum, <kbd>Enter</kbd> skifter linje, og <kbd>Backspace</kbd> tager det sidste bogstav tilbage. Piletasterne flytter markøren, og det gør et tryk på tavlen også.</li>
-        <li>Træk bogstaverne rundt med musen eller fingeren. Vil du af med et bogstav, så tryk på det, eller træk det tilbage til den forrige besked.</li>
-        <li>Hold <kbd>Shift</kbd> nede, mens du skriver, for at sætte bogstavet på hovedet. Mangler du et W, vender tavlen selv et M.</li>
-        <li>»Bland« lægger alle de bogstaver, der er tilbage, på din tavle i tilfældig rækkefølge.</li>
-        <li>»Ret tavlen« lader dig skrive en helt ny tavle med lige de bogstaver, du vil.</li>
-      </ul>
+  <!-- The menu: one section per thing in it, so that more can be added as sections of their own. -->
+  <div id="menuBackdrop" class="menu-backdrop" hidden></div>
+  <aside id="menu" class="menu" aria-label="Menu" hidden>
+    <div class="menu-head">
+      <button id="menuCloseButton" class="pill pill-text" type="button">luk</button>
+    </div>
+
+    <details id="originalsSection" class="menu-section" open>
+      <summary>originale tavler</summary>
+      <div id="originalsList" class="cards"></div>
     </details>
 
-    <section class="list-section" aria-labelledby="galleryHeading">
-      <div class="list-head">
-        <h2 id="galleryHeading">Galleri</h2>
-        <p id="galleryEmpty" class="list-note">Her er tavlen, det hele startede med. Gem din egen, og send den ind.</p>
-      </div>
+    <details id="gallerySection" class="menu-section" open>
+      <summary>galleri</summary>
+      <p id="galleryEmpty" class="menu-note">Her er ingen tavler endnu. Gem din egen, så kommer den med.</p>
       <div id="galleryList" class="cards"></div>
-      <button id="galleryMoreButton" class="btn" type="button" hidden>Vis flere</button>
-    </section>
-
-    <section id="savedSection" class="list-section" aria-labelledby="savedHeading" hidden>
-      <div class="list-head">
-        <h2 id="savedHeading">Dine tavler</h2>
-        <p class="list-note">Dem, du har gemt eller fået sendt. De ligger kun i denne browser.</p>
-      </div>
-      <div id="savedList" class="cards"></div>
-    </section>
-  </main>
-
-  <footer class="site-footer">© de ansvarlige</footer>
+      <button id="galleryMoreButton" class="pill pill-text" type="button" hidden>vis flere</button>
+    </details>
+  </aside>
 
   <dialog id="authorDialog" class="dialog" aria-labelledby="authorHeading">
     <form method="dialog">
-      <h2 id="authorHeading">Hvem har skrevet den?</h2>
+      <h2 id="authorHeading">hvem har skrevet den?</h2>
       <label for="authorInput">Navn</label>
       <input id="authorInput" type="text" maxlength="40" autocomplete="nickname" placeholder="Dit navn" required>
       <div class="dialog-actions">
-        <button id="authorCancelButton" class="btn" type="button">Annullér</button>
-        <button class="btn btn-primary" value="save">Gem</button>
+        <button id="authorCancelButton" class="pill pill-text" type="button">annullér</button>
+        <button class="pill pill-text pill-solid" value="save">gem</button>
       </div>
     </form>
   </dialog>
 
   <dialog id="shareDialog" class="dialog dialog-share" aria-labelledby="shareHeading">
     <form method="dialog">
-      <h2 id="shareHeading">Del tavlen</h2>
+      <h2 id="shareHeading">del tavlen</h2>
       <div id="sharePreview"></div>
       <p id="shareTitle" class="share-title"></p>
 
       <label for="shareLink">Link til tavlen</label>
       <div class="share-row">
         <input id="shareLink" type="text" readonly>
-        <button id="copyButton" class="btn btn-primary" type="button">Kopiér link</button>
+        <button id="copyButton" class="pill pill-text pill-solid" type="button">kopiér link</button>
       </div>
       <p class="dialog-note">Den, der åbner linket, får tavlen og kan bygge videre på den.</p>
 
-      <div id="submitSection" class="share-submit">
-        <a id="submitLink" class="btn" target="_blank" rel="noopener">Send til galleriet</a>
-        <p class="dialog-note">Åbner GitHub med tavlen udfyldt. Du skal have en GitHub-konto.</p>
-      </div>
+      <p id="uploadNote" class="dialog-note" hidden>Den kom ikke med i galleriet lige nu. Siden prøver igen, næste gang den åbnes.</p>
 
       <div class="dialog-actions">
-        <button id="nativeShareButton" class="btn" type="button" hidden>Del …</button>
-        <button class="btn">Luk</button>
+        <button id="nativeShareButton" class="pill pill-text" type="button" hidden>del …</button>
+        <button class="pill pill-text">luk</button>
       </div>
     </form>
   </dialog>

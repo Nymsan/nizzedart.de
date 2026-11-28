@@ -1,8 +1,7 @@
 // Editing a board: a cursor to type at, and letters that come from a supply.
 //
 // A supply answers `find(ch)` with a piece `{ ch, src, flip }` or null, and is
-// told when a piece is taken or put back. `flip` is set when the piece is a
-// stand-in that has to be turned upside down to read as `ch`.
+// told when a piece is taken or put back.
 
 import {
   clamp,
@@ -13,35 +12,68 @@ import {
   tileRight,
   typingSlot,
 } from "./board.js";
-import { BOARD_W, LINE_STEP, MARGIN_X, ROW_MAX, STAND_IN, WORD_GAP, gapAfter } from "./glyphs.js";
+import { BOARD_W, LINE_STEP, WORD_GAP, gapAfter } from "./glyphs.js";
 
-/** The letters of the previous message: each can be used once. */
+/**
+ * The letters of the previous message. Each is either on the board ("used",
+ * as a tile of the editor) or lying on the table next to it, at `table`:
+ * `{ x, y, flip }` in felt units, x its left edge and y its middle. A letter
+ * that has just come off the board goes back where it lay on the table, if it
+ * came from there; if not, it has no place on the table yet (null), and the
+ * workspace finds it one. `x`, `row` and `flip` are where it was last on the
+ * board (`wasOnBoard`).
+ */
 export class Pool {
   constructor(tiles) {
-    this.tiles = tiles.map((tile, i) => ({ ...tile, id: `s${i}`, used: false }));
+    this.tiles = tiles.map(({ ch, x, row, flip, loose }, i) => ({
+      ch,
+      x,
+      row,
+      flip,
+      loose,
+      id: `s${i}`,
+      used: false,
+      table: null,
+      lastTable: null,
+      wasOnBoard: !loose,
+    }));
+  }
+
+  tile(id) {
+    return this.#tile(id) ?? null;
   }
 
   find(ch) {
-    const exact = this.#firstUnused(ch);
-    if (exact) return { ch, src: exact.id, flip: false };
-    const standIn = STAND_IN[ch] && this.#firstUnused(STAND_IN[ch]);
-    return standIn ? { ch: standIn.ch, src: standIn.id, flip: true } : null;
+    const tile = this.#firstUnused(ch);
+    return tile ? { ch, src: tile.id, flip: false } : null;
   }
 
-  /** The piece for one particular tile, or null if it is already used. */
+  /** The piece for one particular letter, or null if it is on the board. */
   piece(id) {
     const tile = this.#tile(id);
     return tile && !tile.used ? { ch: tile.ch, src: id, flip: false } : null;
   }
 
   take(piece) {
-    this.#tile(piece.src).used = true;
+    const tile = this.#tile(piece.src);
+    Object.assign(tile, { used: true, lastTable: tile.table, table: null });
   }
 
-  putBack(src) {
-    this.#tile(src).used = false;
+  /** The letter comes off the board. `from` is the tile it was there, `{ x, row, flip }`. */
+  putBack(src, from = null) {
+    const tile = this.#tile(src);
+    tile.used = false;
+    tile.table = tile.lastTable && { ...tile.lastTable };
+    if (from) Object.assign(tile, { x: from.x, row: from.row, flip: Boolean(from.flip), wasOnBoard: true });
   }
 
+  /** Lay a letter that is not on the board somewhere on the table. */
+  lay(id, place) {
+    const tile = this.#tile(id);
+    if (tile && !tile.used) tile.table = { x: place.x, y: place.y, flip: Boolean(place.flip) };
+  }
+
+  /** The letters on the table, or about to be. */
   get leftovers() {
     return this.tiles.filter((tile) => !tile.used);
   }
@@ -50,19 +82,14 @@ export class Pool {
     return this.tiles.find((tile) => tile.id === id);
   }
 
+  /** Letters are taken from the table in reading order of where they lie. */
   #firstUnused(ch) {
+    const at = (tile) => tile.table ?? { x: tile.x, y: tile.row * 20 };
     return this.tiles
       .filter((tile) => !tile.used && tile.ch === ch)
-      .sort((a, b) => a.row - b.row || a.x - b.x)[0];
+      .sort((a, b) => at(a).y - at(b).y || at(a).x - at(b).x)[0];
   }
 }
-
-/** A supply that never runs out, for writing a board from scratch. */
-export const ENDLESS = {
-  find: (ch) => ({ ch, src: null, flip: false }),
-  take() {},
-  putBack() {},
-};
 
 const CURSOR_STEP = 18;
 
@@ -84,15 +111,7 @@ export class Editor {
     return this.tiles.find((tile) => tile.id === id);
   }
 
-  /** Start from existing tiles that do not come from the supply. */
-  load(tiles) {
-    this.tiles = tiles.map((tile) => ({ ...tile, id: this.#newId(), src: null }));
-    this.cursor = typingSlot(this.tiles, "A", homeCursor()) ?? homeCursor();
-    this.#typed = [];
-    this.#onChange();
-  }
-
-  /** Put back pieces `[{ src, x, row, flip }]` taken from the supply earlier. Stale ones are skipped. */
+  /** Put back pieces `[{ src, x, row, flip }]` taken from the supply earlier. Stale ones, and ones not on the board, are skipped. */
   restore(items) {
     for (const { src, x, row, flip } of items) {
       const piece = this.#supply.piece?.(src);
@@ -117,43 +136,13 @@ export class Editor {
     return result;
   }
 
-  /**
-   * Put pieces at the cursor one after the other, the right way up, with
-   * `spread` units of extra room between them and, when that runs onto a new
-   * line, a groove of extra room between the lines. Stops when the board is full.
-   * Returns the result and the ids of the new tiles.
-   */
-  placeAll(pieces, spread = 0) {
-    let result = "ok";
-    const ids = [];
-    for (const piece of pieces) {
-      let slot = typingSlot(this.tiles, piece.ch, this.cursor);
-      if (slot && spread > 0 && slot.row !== this.cursor.row && slot.row < ROW_MAX) {
-        const roomier = typingSlot(this.tiles, piece.ch, { x: MARGIN_X, row: slot.row + 1 });
-        if (roomier?.row === slot.row + 1) slot = roomier;
-      }
-      if (!slot) {
-        result = "full";
-        break;
-      }
-      ids.push(this.#placeAt(piece, slot, false, spread).id);
-    }
-    this.#onChange();
-    return { result, ids };
-  }
-
   #placeAtCursor(piece, flip) {
     const slot = typingSlot(this.tiles, piece.ch, this.cursor);
     if (!slot) return "full";
-    this.#placeAt(piece, slot, flip);
-    return "ok";
-  }
-
-  #placeAt(piece, slot, flip, spread = 0) {
     const tile = this.#add(piece, slot, flip);
     this.#typed.push({ cursor: this.cursor, tileId: tile.id });
-    this.cursor = { x: tileRight(tile) + gapAfter(tile.ch) + spread, row: tile.row };
-    return tile;
+    this.cursor = { x: tileRight(tile) + gapAfter(tile.ch), row: tile.row };
+    return "ok";
   }
 
   /** Put a piece as close to (x, row) as it fits. */
@@ -241,6 +230,18 @@ export class Editor {
     if (tile) this.remove(tile.id);
   }
 
+  /** Everything about the board, to have it back with `restoreSnapshot` (for undo). */
+  snapshot() {
+    return { tiles: this.tiles.map((tile) => ({ ...tile })), cursor: { ...this.cursor }, typed: [...this.#typed] };
+  }
+
+  /** Put the board back as `snapshot` had it. The supply is put back by its owner. */
+  restoreSnapshot({ tiles, cursor, typed }) {
+    this.tiles = tiles.map((tile) => ({ ...tile }));
+    this.cursor = { ...cursor };
+    this.#typed = [...typed];
+  }
+
   clear() {
     for (const tile of [...this.tiles]) this.#discard(tile.id);
     this.cursor = homeCursor();
@@ -259,7 +260,7 @@ export class Editor {
     const index = this.tiles.findIndex((tile) => tile.id === id);
     if (index < 0) return;
     const [tile] = this.tiles.splice(index, 1);
-    if (tile.src !== null) this.#supply.putBack(tile.src);
+    if (tile.src !== null) this.#supply.putBack(tile.src, tile);
   }
 
   #newId() {

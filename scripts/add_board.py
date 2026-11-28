@@ -28,12 +28,15 @@ from pathlib import Path
 
 GALLERY = Path(__file__).resolve().parent.parent / "data" / "boards.json"
 
-# The share code format, version 1. Keep in step with js/codec.js and js/glyphs.js.
-VERSION = 1
-ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ0123456789@*'<"
-ROW_MIN, ROW_MAX = 2, 30
+# The share code format. Keep in step with js/codec.js and js/glyphs.js.
+# Version 2 is what the site writes; boards in version 1 are still read.
+ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ0123456789@*'>-_,"
+VERSIONS = {
+    # version: (bits per tile, bits for the row, first row, last row)
+    1: (23, 5, 2, 30),
+    2: (24, 6, 2, 42),
+}
 MAX_TILES = 200
-TILE_BITS = 23
 HEADER_BYTES = 12  # version, time, parent id, length of the name
 
 CODE_LINE = re.compile(r"^board:([A-Za-z0-9_-]{12,1400})\s*$", re.MULTILINE)
@@ -52,8 +55,9 @@ def check_code(code):
     except ValueError as error:
         raise ValueError("not base64url") from error
 
-    if len(data) < HEADER_BYTES + 1 or data[0] != VERSION:
+    if len(data) < HEADER_BYTES + 1 or data[0] not in VERSIONS:
         raise ValueError("unknown version")
+    tile_bits, row_bits, row_min, row_max = VERSIONS[data[0]]
 
     name_end = HEADER_BYTES + data[HEADER_BYTES - 1]
     if len(data) <= name_end:
@@ -65,16 +69,16 @@ def check_code(code):
 
     count = data[name_end]
     tile_bytes = data[name_end + 1 :]
-    if count > MAX_TILES or len(tile_bytes) != (count * TILE_BITS + 7) // 8:
+    if count > MAX_TILES or len(tile_bytes) != (count * tile_bits + 7) // 8:
         raise ValueError("wrong length")
 
     bits = int.from_bytes(tile_bytes, "big")
     total_bits = len(tile_bytes) * 8
     for index in range(count):
-        tile = (bits >> (total_bits - (index + 1) * TILE_BITS)) & ((1 << TILE_BITS) - 1)
-        letter = tile >> 17
-        row = tile & 31
-        if letter >= len(ALPHABET) or not ROW_MIN <= row <= ROW_MAX:
+        tile = (bits >> (total_bits - (index + 1) * tile_bits)) & ((1 << tile_bits) - 1)
+        letter = tile >> (tile_bits - 6)
+        row = tile & ((1 << row_bits) - 1)
+        if letter >= len(ALPHABET) or not row_min <= row <= row_max:
             raise ValueError("tile off the board")
 
 

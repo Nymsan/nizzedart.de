@@ -51,6 +51,17 @@ export function importLegacyBoards(storage, originalId) {
   }
 }
 
+/** Remove the old boards from the storage, once they are carried over. */
+export function forgetLegacyBoards(storage) {
+  for (const key of LEGACY_KEYS) {
+    try {
+      storage.removeItem?.(key);
+    } catch {
+      // Storage that cannot be changed keeps them; they are only read when there is nothing newer.
+    }
+  }
+}
+
 function convertTiles(snapshot) {
   const tiles = Array.isArray(snapshot?.tiles) ? snapshot.tiles : [];
   // Old boards were as wide as the window. Squeeze the wide ones onto the board.
@@ -59,8 +70,9 @@ function convertTiles(snapshot) {
     .flatMap(({ token, x, y, rotation }) => {
       let ch = token;
       let flip = rotation === 180;
-      if (ch === ">") {
-        ch = "<";
+      // The arrow is one piece, ">" the right way up.
+      if (ch === "<") {
+        ch = ">";
         flip = !flip;
       }
       if (typeof ch !== "string" || ch.length !== 1 || !ALPHABET.includes(ch)) return [];

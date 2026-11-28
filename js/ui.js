@@ -2,7 +2,7 @@
 
 export const $ = (selector, root = document) => root.querySelector(selector);
 
-/** Create an element: `h("button", { className: "btn", textContent: "Gem" }, ...children)`. */
+/** Create an element: `h("button", { className: "pill", textContent: "gem" }, ...children)`. */
 export function h(tag, props = {}, ...children) {
   const node = Object.assign(document.createElement(tag), props);
   node.append(...children);
