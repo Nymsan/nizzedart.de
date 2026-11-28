@@ -14,6 +14,9 @@ import { ALPHABET, GROOVE, glyphForKey, glyphText, glyphWidth } from "./glyphs.j
 /** How far outside the board (in board units) a dragged letter must be to be lifted off it. */
 const LEAVE_MARGIN = 10;
 
+/** Extra room, in board units, between the letters Bland lays out. */
+const SHUFFLE_SPREAD = 8;
+
 const TRAY_ACTIONS = [
   ["space", "Mellemrum"],
   ["newline", "Ny linje"],
@@ -107,7 +110,9 @@ export class Workspace {
       const j = Math.floor(random() * (i + 1));
       [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
     }
-    if (this.#composer.placeAll(pieces) === "full") this.#notify("Der var ikke plads til dem alle på tavlen");
+    const { result, ids } = this.#composer.placeAll(pieces, SHUFFLE_SPREAD);
+    this.#composeView.roll(ids);
+    if (result === "full") this.#notify("Der var ikke plads til dem alle på tavlen");
   }
 
   /**

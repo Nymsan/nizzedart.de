@@ -13,7 +13,7 @@ import {
   tileRight,
   typingSlot,
 } from "./board.js";
-import { BOARD_W, LINE_STEP, STAND_IN, WORD_GAP, gapAfter } from "./glyphs.js";
+import { BOARD_W, LINE_STEP, MARGIN_X, ROW_MAX, STAND_IN, WORD_GAP, gapAfter } from "./glyphs.js";
 
 /** The letters of the previous message: each can be used once. */
 export class Pool {
@@ -117,24 +117,43 @@ export class Editor {
     return result;
   }
 
-  /** Put pieces at the cursor one after the other, the right way up. Stops when the board is full. */
-  placeAll(pieces) {
+  /**
+   * Put pieces at the cursor one after the other, the right way up, with
+   * `spread` units of extra room between them and, when that runs onto a new
+   * line, a groove of extra room between the lines. Stops when the board is full.
+   * Returns the result and the ids of the new tiles.
+   */
+  placeAll(pieces, spread = 0) {
     let result = "ok";
+    const ids = [];
     for (const piece of pieces) {
-      result = this.#placeAtCursor(piece, false);
-      if (result !== "ok") break;
+      let slot = typingSlot(this.tiles, piece.ch, this.cursor);
+      if (slot && spread > 0 && slot.row !== this.cursor.row && slot.row < ROW_MAX) {
+        const roomier = typingSlot(this.tiles, piece.ch, { x: MARGIN_X, row: slot.row + 1 });
+        if (roomier?.row === slot.row + 1) slot = roomier;
+      }
+      if (!slot) {
+        result = "full";
+        break;
+      }
+      ids.push(this.#placeAt(piece, slot, false, spread).id);
     }
     this.#onChange();
-    return result;
+    return { result, ids };
   }
 
   #placeAtCursor(piece, flip) {
     const slot = typingSlot(this.tiles, piece.ch, this.cursor);
     if (!slot) return "full";
+    this.#placeAt(piece, slot, flip);
+    return "ok";
+  }
+
+  #placeAt(piece, slot, flip, spread = 0) {
     const tile = this.#add(piece, slot, flip);
     this.#typed.push({ cursor: this.cursor, tileId: tile.id });
-    this.cursor = { x: tileRight(tile) + gapAfter(tile.ch), row: tile.row };
-    return "ok";
+    this.cursor = { x: tileRight(tile) + gapAfter(tile.ch) + spread, row: tile.row };
+    return tile;
   }
 
   /** Put a piece as close to (x, row) as it fits. */

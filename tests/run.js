@@ -826,6 +826,9 @@ test("page: Bland puts every letter that is left on the new board, in some order
   equal(sorted(composed()), sorted($$("#sourceBoard .tile")));
   equal(composedText().slice(0, 3), "NEJ", "what was there stays");
   assert(composed().every((node) => !turned(node)), "none upside down");
+  const rows = [...new Set(composed().map((node) => place(node)[1]))].sort((x, y) => x - y);
+  assert(rows.every((row, i) => i === 0 || row - rows[i - 1] >= LINE_STEP + 1), `room between the lines, got rows ${rows}`);
+  assert(composed().slice(3).some((node) => node.classList.contains("is-rolling")), "they roll in");
   assert(nothingOverlaps(composed().map((node) => ({ ch: node.dataset.ch, x: place(node)[0], row: place(node)[1] }))));
   $("#shuffleButton").click();
   equal(composed().length, 51);

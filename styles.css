@@ -342,6 +342,18 @@ h2 {
   z-index: 5;
 }
 
+/* Laid out by Bland: the letters tumble in like dice. */
+.tile.is-rolling {
+  animation: roll 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) var(--roll-delay, 0ms) backwards;
+}
+
+@keyframes roll {
+  from {
+    opacity: 0;
+    transform: rotate(-1turn) scale(0.5);
+  }
+}
+
 .tile.is-lifted {
   z-index: 5;
   cursor: grabbing;

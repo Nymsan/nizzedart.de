@@ -133,6 +133,17 @@ export class BoardView {
     this.#table.style.setProperty("--table-h", TABLE.top * 2 + (rows.length - 1) * TABLE.line);
   }
 
+  /** Let letters tumble into place like dice, one shortly after the other. */
+  roll(ids) {
+    ids.forEach((id, index) => {
+      const node = this.#nodes.get(String(id));
+      if (!node) return;
+      node.style.setProperty("--roll-delay", `${index * 18}ms`);
+      node.classList.add("is-rolling");
+      node.addEventListener("animationend", () => node.classList.remove("is-rolling"), { once: true });
+    });
+  }
+
   /** How many board units one screen pixel is. */
   get unitsPerPixel() {
     return this.#width / this.#field.getBoundingClientRect().width;
