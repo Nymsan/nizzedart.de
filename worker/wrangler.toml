@@ -14,4 +14,4 @@ SAVES_PER_HOUR = "20"
 binding = "DB"
 database_name = "nizzedart"
 # Paste the id of the database here (Cloudflare dashboard: Storage & Databases > D1 > nizzedart).
-database_id = "PASTE-THE-DATABASE-ID-HERE"
+database_id = "d70dbb70-a6e1-4b4f-8b17-2a1264d3f3c2"
